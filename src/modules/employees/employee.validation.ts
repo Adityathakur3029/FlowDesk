@@ -5,7 +5,7 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../../db/repository";
 // These schemas validate requests at runtime and also generate the OpenAPI docs
 // (see employee.docs.ts), so keep the `.meta` descriptions accurate.
 
-const roleSchema = z.enum(employeeRole.enumValues).meta({ id: "EmployeeRole", example: "MANAGER" });
+export const roleSchema = z.enum(employeeRole.enumValues).meta({ id: "EmployeeRole", example: "MANAGER" });
 
 export const createEmployeeSchema = z
   .object({
@@ -20,7 +20,7 @@ export const createEmployeeSchema = z
         // The pipe hides the email/max checks from the generator, so state them here
         format: "email",
         maxLength: 255,
-        example: "jane.doe@acme.com",
+        example: "jane.doe@saajha.org",
       }),
     name: z.string().trim().min(1).max(150).meta({
       description: "Full name; trimmed; 1-150 characters",

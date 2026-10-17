@@ -8,6 +8,20 @@
       "when": 1792073603604,
       "tag": "0000_create_employees",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792078108403,
+      "tag": "0001_create_employee_invites",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792231594843,
+      "tag": "0002_add_invite_name",
+      "breakpoints": true
     }
   ]
 }

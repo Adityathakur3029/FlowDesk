@@ -22,7 +22,7 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   }
 
   if (err instanceof AppError) {
-    res.status(err.statusCode).json({ error: err.message, details: err.details });
+    res.status(err.statusCode).json({ error: err.message, code: err.code, details: err.details });
     return;
   }
 

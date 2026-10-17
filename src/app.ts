@@ -5,12 +5,14 @@ import swaggerUi from "swagger-ui-express";
 import { pool } from "./db";
 import { buildOpenApiDocument } from "./docs/openapi";
 import { employeeRouter } from "./modules/employees/employee.routes";
+import { inviteRouter } from "./modules/invites/invite.routes";
 import { errorHandler } from "./middleware/errorHandler";
 
 // Feature routers and their mount paths. Mount routers here (not with ad-hoc app.use)
 // so `npm run docs:validate` can check every route has OpenAPI docs.
 export const routeModules: ReadonlyArray<{ basePath: string; router: Router }> = [
   { basePath: "/employees", router: employeeRouter },
+  { basePath: "/invites", router: inviteRouter },
 ];
 
 export const app = express();

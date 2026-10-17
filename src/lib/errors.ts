@@ -1,12 +1,20 @@
-// Errors thrown by services; the error middleware turns them into HTTP responses
+// Errors thrown by services; the error middleware turns them into HTTP responses.
+// `code` is an optional machine-readable identifier (e.g. "INVITE_EXPIRED").
 export class AppError extends Error {
   constructor(
     public readonly statusCode: number,
     message: string,
     public readonly details?: unknown,
+    public readonly code?: string,
   ) {
     super(message);
     this.name = new.target.name;
+  }
+}
+
+export class BadRequestError extends AppError {
+  constructor(message: string, code?: string) {
+    super(400, message, undefined, code);
   }
 }
 
@@ -17,8 +25,22 @@ export class NotFoundError extends AppError {
 }
 
 export class ConflictError extends AppError {
-  constructor(message: string, details?: unknown) {
-    super(409, message, details);
+  constructor(message: string, code?: string, details?: unknown) {
+    super(409, message, details, code);
+  }
+}
+
+// The resource existed but is no longer available (e.g. an expired invite link)
+export class GoneError extends AppError {
+  constructor(message: string, code?: string) {
+    super(410, message, undefined, code);
+  }
+}
+
+// An upstream dependency (e.g. the mail server) failed
+export class BadGatewayError extends AppError {
+  constructor(message: string, code?: string) {
+    super(502, message, undefined, code);
   }
 }
 

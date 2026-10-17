@@ -14,9 +14,16 @@ export const errorResponseSchema = registry.register(
   z
     .object({
       error: z.string().meta({ description: "Human-readable error message" }),
+      code: z.string().optional().meta({
+        description:
+          "Machine-readable error code, present on errors that have one: INVALID_INVITE_TOKEN, INVITE_REVOKED, " +
+          "INVITE_ALREADY_ACCEPTED, INVITE_PENDING, INVITE_EXPIRED, EMPLOYEE_EXISTS, EMAIL_DELIVERY_FAILED",
+        example: "INVITE_EXPIRED",
+      }),
     })
     .meta({
-      description: "Error body returned by the error middleware for 404, 409 and 500 responses",
+      description:
+        "Error body returned by the error middleware for non-validation errors (e.g. 400 with a `code`, 404, 409, 410, 500, 502)",
       example: { error: "Employee not found" },
     }),
 );

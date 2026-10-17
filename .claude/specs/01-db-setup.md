@@ -123,7 +123,7 @@ await withTransaction(async (tx) => {
 
 Request:
 ```json
-{ "email": "jane@acme.com", "name": "Jane Doe", "role": "MANAGER" }
+{ "email": "jane@saajha.org", "name": "Jane Doe", "role": "MANAGER" }
 ```
 - `email`: required, trimmed, lowercased, valid email, max 255, unique (case-insensitive because of the lowercasing)
 - `name`: required, trimmed, 1–150 chars

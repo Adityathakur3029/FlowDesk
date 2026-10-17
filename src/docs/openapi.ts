@@ -4,6 +4,7 @@ import { registry } from "./registry";
 // Side-effect imports: each registers its routes on the shared registry
 import "./health.docs";
 import "../modules/employees/employee.docs";
+import "../modules/invites/invite.docs";
 
 export function buildOpenApiDocument() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
@@ -21,6 +22,7 @@ export function buildOpenApiDocument() {
     tags: [
       { name: "Health", description: "Service status" },
       { name: "Employees", description: "Organisation employees" },
+      { name: "Invites", description: "Invite new members by email and accept invites" },
     ],
   });
 }

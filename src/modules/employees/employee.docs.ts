@@ -11,18 +11,18 @@ import {
 import { employeeRole } from "../../db/schema";
 import { createEmployeeSchema, employeeIdParamSchema, listEmployeesQuerySchema } from "./employee.validation";
 
-const exampleEmployee = {
+export const exampleEmployee = {
   id: "baac08e5-eaef-46f0-ac9e-f8b7266c71e0",
   createdAt: "2026-10-15T14:13:43.757Z",
   updatedAt: "2026-10-15T14:13:43.757Z",
   isActive: true,
-  emailId: "jane.doe@acme.com",
+  emailId: "jane.doe@saajha.org",
   name: "Jane Doe",
   role: "MANAGER",
 };
 
 // Mirrors the `employees` row returned by the repository (see src/db/schema/employees.ts)
-const employeeSchema = registry.register(
+export const employeeSchema = registry.register(
   "Employee",
   z
     .object({
@@ -64,7 +64,7 @@ registry.registerPath({
       content: {
         "application/json": {
           schema: createEmployeeSchema,
-          example: { email: "  Jane.Doe@ACME.com ", name: "Jane Doe", role: "MANAGER" },
+          example: { email: "  Jane.Doe@saajha.org ", name: "Jane Doe", role: "MANAGER" },
         },
       },
     },
@@ -85,7 +85,7 @@ registry.registerPath({
       },
     ),
     409: jsonResponse("An employee with this email already exists", errorResponseSchema, {
-      error: "Employee with email jane.doe@acme.com already exists",
+      error: "Employee with email jane.doe@saajha.org already exists",
     }),
     500: internalServerErrorResponse,
   },
