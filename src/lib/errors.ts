@@ -18,6 +18,20 @@ export class BadRequestError extends AppError {
   }
 }
 
+// Missing or invalid credentials (no token, bad access token, bad Google ID token)
+export class UnauthorizedError extends AppError {
+  constructor(message: string, code?: string) {
+    super(401, message, undefined, code);
+  }
+}
+
+// Identity is known but access is not allowed (not invited, inactive, wrong role)
+export class ForbiddenError extends AppError {
+  constructor(message: string, code?: string) {
+    super(403, message, undefined, code);
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(message = "Resource not found") {
     super(404, message);

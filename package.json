@@ -25,7 +25,8 @@
     "db:migrate:prod": "node dist/db/migrate.js",
     "db:check": "drizzle-kit check",
     "db:studio": "drizzle-kit studio",
-    "docs:validate": "tsx src/docs/validate.ts"
+    "docs:validate": "tsx src/docs/validate.ts",
+    "auth:bootstrap-admin": "tsx src/scripts/bootstrapAdmin.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
@@ -33,6 +34,7 @@
     "dotenv": "^18.0.7",
     "drizzle-orm": "^0.45.4",
     "express": "^5.3.0",
+    "google-auth-library": "^11.3.1",
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^10.1.1",
     "pg": "^8.23.1",

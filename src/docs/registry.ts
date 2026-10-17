@@ -17,13 +17,15 @@ export const errorResponseSchema = registry.register(
       code: z.string().optional().meta({
         description:
           "Machine-readable error code, present on errors that have one: INVALID_INVITE_TOKEN, INVITE_REVOKED, " +
-          "INVITE_ALREADY_ACCEPTED, INVITE_PENDING, INVITE_EXPIRED, EMPLOYEE_EXISTS, EMAIL_DELIVERY_FAILED",
+          "INVITE_ALREADY_ACCEPTED, INVITE_PENDING, INVITE_EXPIRED, EMPLOYEE_EXISTS, EMAIL_DELIVERY_FAILED, " +
+          "AUTH_REQUIRED, INVALID_AUTH_TOKEN, FORBIDDEN, INVALID_GOOGLE_TOKEN, GOOGLE_EMAIL_NOT_VERIFIED, " +
+          "EMAIL_DOMAIN_NOT_ALLOWED, NOT_INVITED, ACCOUNT_INACTIVE, GOOGLE_ACCOUNT_MISMATCH, GOOGLE_UNAVAILABLE",
         example: "INVITE_EXPIRED",
       }),
     })
     .meta({
       description:
-        "Error body returned by the error middleware for non-validation errors (e.g. 400 with a `code`, 404, 409, 410, 500, 502)",
+        "Error body returned by the error middleware for non-validation errors (e.g. 400 with a `code`, 401, 403, 404, 409, 410, 500, 502)",
       example: { error: "Employee not found" },
     }),
 );
@@ -76,6 +78,50 @@ registry.registerComponent("responses", "InternalServerError", {
 
 export const internalServerErrorResponse = { $ref: "#/components/responses/InternalServerError" };
 
+registry.registerComponent("responses", "Unauthorized", {
+  description:
+    "`AUTH_REQUIRED`: no `Authorization: Bearer <token>` header. " +
+    "`INVALID_AUTH_TOKEN`: the access token is malformed, has a bad signature or has expired, " +
+    "or its employee no longer exists or has been deactivated. Sign in again with `POST /auth/google`.",
+  content: {
+    "application/json": {
+      schema: errorRef,
+      examples: {
+        authRequired: { value: { error: "Authentication required", code: "AUTH_REQUIRED" } },
+        invalidToken: { value: { error: "Invalid or expired access token", code: "INVALID_AUTH_TOKEN" } },
+      },
+    },
+  },
+});
+
+export const unauthorizedResponse = { $ref: "#/components/responses/Unauthorized" };
+
+registry.registerComponent("responses", "Forbidden", {
+  description: "`FORBIDDEN`: the signed-in employee's role is not allowed to call this endpoint.",
+  content: {
+    "application/json": {
+      schema: errorRef,
+      example: { error: "You do not have permission to perform this action", code: "FORBIDDEN" },
+    },
+  },
+});
+
+export const forbiddenResponse = { $ref: "#/components/responses/Forbidden" };
+
+// ---- Security ----
+
+registry.registerComponent("securitySchemes", "bearerAuth", {
+  type: "http",
+  scheme: "bearer",
+  bearerFormat: "JWT",
+  description:
+    "FlowDesk access token (HS256 JWT) returned by `POST /auth/google` after signing in with Google. " +
+    "Send it as `Authorization: Bearer <accessToken>`.",
+});
+
+// Operation-level security for endpoints that need a signed-in employee
+export const bearerSecurity = [{ bearerAuth: [] }];
+
 // ---- Helpers ----
 
 // JSON response with a schema and a concrete example
@@ -83,6 +129,17 @@ export function jsonResponse(description: string, schema: z.ZodType, example: un
   return { description, content: { "application/json": { schema, example } } };
 }
 
-// Shown in each operation description until auth exists
+// Shown in the description of public operations
 export const PUBLIC_ACCESS_NOTE =
   "**Authentication:** none, the endpoint is public.\n\n**Authorization / roles:** none required.";
+
+// Shown in the description of protected operations; no roles means any signed-in employee
+export function authNote(...roles: string[]): string {
+  const rolesText = roles.length
+    ? `${roles.join(" or ")} only; other roles get 403 \`FORBIDDEN\`.`
+    : "any active employee.";
+  return (
+    "**Authentication:** required. Send `Authorization: Bearer <accessToken>` (from `POST /auth/google`, Google sign-in).\n\n" +
+    `**Authorization / roles:** ${rolesText}`
+  );
+}

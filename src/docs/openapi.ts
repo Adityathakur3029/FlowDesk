@@ -3,6 +3,7 @@ import { registry } from "./registry";
 
 // Side-effect imports: each registers its routes on the shared registry
 import "./health.docs";
+import "../modules/auth/auth.docs";
 import "../modules/employees/employee.docs";
 import "../modules/invites/invite.docs";
 
@@ -15,12 +16,15 @@ export function buildOpenApiDocument() {
       version: "1.0.0",
       description:
         "Backend for FlowDesk, a mini Jira-style project management tool.\n\n" +
-        "Authentication is not implemented yet, so every endpoint is public. " +
+        "**Authentication:** sign in with Google via `POST /auth/google` to get an access token, then send it as " +
+        "`Authorization: Bearer <accessToken>` (the `bearerAuth` scheme; use **Authorize** in Swagger UI). " +
+        "Only invited, active employees can sign in. Each operation states whether it needs a token and which roles may call it. " +
         "All request and response bodies are JSON.",
     },
     servers: [{ url: "/", description: "Current host" }],
     tags: [
       { name: "Health", description: "Service status" },
+      { name: "Auth", description: "Sign in with Google and get the current employee" },
       { name: "Employees", description: "Organisation employees" },
       { name: "Invites", description: "Invite new members by email and accept invites" },
     ],

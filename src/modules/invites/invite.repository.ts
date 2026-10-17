@@ -18,6 +18,11 @@ export function createInviteRepository(executor: DbExecutor = db) {
       return base.findOne(pendingFor(emailId)!);
     },
 
+    // Login requires an accepted invite linked to the employee
+    hasAcceptedInvite(employeeId: string): Promise<boolean> {
+      return base.exists(and(eq(employeeInvites.employeeId, employeeId), eq(employeeInvites.status, "ACCEPTED"))!);
+    },
+
     // Supersede the live invite (if any) so its link stops working
     async revokePendingForEmail(emailId: string): Promise<void> {
       await executor.update(employeeInvites).set({ status: "REVOKED" }).where(pendingFor(emailId));

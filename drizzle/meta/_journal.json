@@ -22,6 +22,13 @@
       "when": 1792231594843,
       "tag": "0002_add_invite_name",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792234091183,
+      "tag": "0003_add_employee_google_sub",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import type { EmployeeInvite } from "../../db/schema";
+import { toEmployeeDto } from "../employees/employee.dto";
 import * as inviteService from "./invite.service";
 import { acceptInviteSchema, createInviteSchema } from "./invite.validation";
 
@@ -18,7 +19,6 @@ function toInviteDto(invite: EmployeeInvite) {
 
 // POST /invites — invite a new member by email
 export async function create(req: Request, res: Response): Promise<void> {
-  console.log("Creating invite with input:", req.body);
   const input = createInviteSchema.parse(req.body);
   const invite = await inviteService.createInvite(input);
   res.status(201).json({ data: toInviteDto(invite) });
@@ -28,5 +28,5 @@ export async function create(req: Request, res: Response): Promise<void> {
 export async function accept(req: Request, res: Response): Promise<void> {
   const input = acceptInviteSchema.parse(req.body);
   const employee = await inviteService.acceptInvite(input);
-  res.status(201).json({ message: "Successfully added", data: employee });
+  res.status(201).json({ message: "Successfully added", data: toEmployeeDto(employee) });
 }

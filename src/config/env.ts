@@ -21,6 +21,12 @@ const envSchema = z
     SMTP_USER: z.string().optional(),
     SMTP_PASS: z.string().optional(),
     SMTP_SECURE: z.stringbool().default(false),
+    // Google sign-in: the ID token's `aud` must equal this OAuth web client ID
+    GOOGLE_CLIENT_ID: z.string().trim().min(1),
+    // HMAC secret for FlowDesk access tokens; keep it different from INVITE_TOKEN_SECRET
+    AUTH_JWT_SECRET: z.string().min(32, "must be at least 32 characters"),
+    // Access token lifetime in jsonwebtoken `expiresIn` format (e.g. 8h, 30m)
+    AUTH_JWT_EXPIRES_IN: z.string().trim().default("8h"),
   })
   .superRefine((env, ctx) => {
     if (env.EMAIL_TRANSPORT !== "smtp") return;

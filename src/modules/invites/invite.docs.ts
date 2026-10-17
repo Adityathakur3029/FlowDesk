@@ -1,11 +1,15 @@
 import { z } from "zod";
 import { env } from "../../config/env";
 import {
+  authNote,
+  bearerSecurity,
   errorResponseSchema,
+  forbiddenResponse,
   internalServerErrorResponse,
   jsonResponse,
   PUBLIC_ACCESS_NOTE,
   registry,
+  unauthorizedResponse,
   validationErrorResponseSchema,
 } from "../../docs/registry";
 import { employeeRole, inviteStatus } from "../../db/schema";
@@ -72,8 +76,8 @@ registry.registerPath({
     `The invite is valid for ${expiryHours} hours. Inviting the same email again revokes the previous pending invite, ` +
     "so only the newest link works. If the email can't be sent, the invite is revoked and 502 is returned.\n\n" +
     "**Headers:** `Content-Type: application/json` is required for the body to be parsed.\n\n" +
-    PUBLIC_ACCESS_NOTE,
-  security: [],
+    authNote("ADMIN", "MANAGER"),
+  security: bearerSecurity,
   request: {
     body: {
       required: true,
@@ -97,6 +101,8 @@ registry.registerPath({
         details: [{ path: "email", message: `Invalid email: must be an @${domain} address` }],
       },
     ),
+    401: unauthorizedResponse,
+    403: forbiddenResponse,
     409: {
       description:
         "`EMPLOYEE_EXISTS`: an employee with this email already exists (including deactivated employees). " +
@@ -137,7 +143,8 @@ registry.registerPath({
     "itself timed out, which clients may retry automatically.\n\n" +
     "Each invite can be accepted once. The invite and the new employee are saved in one transaction.\n\n" +
     "**Headers:** `Content-Type: application/json` is required for the body to be parsed.\n\n" +
-    PUBLIC_ACCESS_NOTE,
+    PUBLIC_ACCESS_NOTE +
+    " The invitee has no account yet; the signed invite token is the proof of access.",
   security: [],
   request: {
     body: {

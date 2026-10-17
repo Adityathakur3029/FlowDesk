@@ -9,6 +9,8 @@ export const employees = pgTable("employees", {
   emailId: varchar("email_id", { length: 255 }).notNull().unique("employees_email_id_unique"),
   name: varchar("name", { length: 150 }).notNull(),
   role: employeeRole("role").notNull().default("MEMBER"),
+  // Google account `sub`, bound on first login; later logins must present the same one
+  googleSub: varchar("google_sub", { length: 255 }).unique("employees_google_sub_unique"),
 });
 
 export type Employee = typeof employees.$inferSelect;

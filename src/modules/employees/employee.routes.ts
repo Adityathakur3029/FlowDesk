@@ -1,8 +1,9 @@
 import { Router } from "express";
+import { requireAuth, requireRole } from "../../middleware/auth";
 import * as employeeController from "./employee.controller";
 
 export const employeeRouter = Router();
 
-employeeRouter.post("/", employeeController.create);
-employeeRouter.get("/", employeeController.list);
-employeeRouter.get("/:id", employeeController.getById);
+employeeRouter.post("/", requireAuth, requireRole("ADMIN"), employeeController.create);
+employeeRouter.get("/", requireAuth, employeeController.list);
+employeeRouter.get("/:id", requireAuth, employeeController.getById);

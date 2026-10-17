@@ -1,6 +1,6 @@
 # 03 — Login with Google (authentication + authorization)
 
-**Status:** Planned
+**Status:** Implemented (not yet tested with a real Google sign-in; see Verified)
 **Branch:** `login`
 **Depends on:** [01-db-setup](./01-db-setup.md) (`employees` table, repository, error handler, OpenAPI setup), [02-invite-member](./02-invite-member.md) (`employee_invites`, `ACCEPTED` status, `src/config/env.ts`, `AppError.code`)
 
@@ -267,24 +267,54 @@ Add the new codes to the `ErrorResponse.code` description in `src/docs/registry.
 
 ## Acceptance checklist
 
-- [ ] Migration `0003_add_employee_google_sub` generated, reviewed, applied
-- [ ] A valid Google ID token for an employee who accepted an invite and is active → 200 with an access token, and `google_sub` stored
-- [ ] Log in again with the same Google account → 200. Log in with a different Google account for the same email (different `sub`) → 403 `GOOGLE_ACCOUNT_MISMATCH`
-- [ ] A garbage, expired or wrong-audience ID token → 401 `INVALID_GOOGLE_TOKEN`
-- [ ] `email_verified = false` → 401 `GOOGLE_EMAIL_NOT_VERIFIED`. A Google account outside `ORG_EMAIL_DOMAIN` → 401 `EMAIL_DOMAIN_NOT_ALLOWED`
-- [ ] An email with no employee, or an employee with no accepted invite (created through `POST /employees`) → 403 `NOT_INVITED`
-- [ ] A deactivated employee → 403 `ACCOUNT_INACTIVE` on login, and a token issued earlier → 401 on `GET /auth/me`
-- [ ] `GET /employees` with no token → 401 `AUTH_REQUIRED`. A tampered token → 401 `INVALID_AUTH_TOKEN`
-- [ ] `POST /employees` as a `MANAGER` or `MEMBER` → 403 `FORBIDDEN`, and as an `ADMIN` → 201
-- [ ] `POST /invites` as a `MEMBER` → 403, and as a `MANAGER` → 201
-- [ ] `POST /invites/accept` still works without a token
-- [ ] `npm run auth:bootstrap-admin` creates an admin who can log in, and running it again is a no-op
-- [ ] `npm run typecheck`, `npm run build`, `npm run docs:validate` pass
+- [x] Migration `0003_add_employee_google_sub` generated, reviewed, applied
+- [ ] A valid Google ID token for an employee who accepted an invite and is active → 200 with an access token, and `google_sub` stored *(rules verified with Google stubbed; needs one real sign-in)*
+- [x] Log in again with the same Google account → 200. Log in with a different Google account for the same email (different `sub`) → 403 `GOOGLE_ACCOUNT_MISMATCH`
+- [ ] A garbage, expired or wrong-audience ID token → 401 `INVALID_GOOGLE_TOKEN` *(garbage verified against the real library; expired and wrong-audience need a real token)*
+- [x] `email_verified = false` → 401 `GOOGLE_EMAIL_NOT_VERIFIED`. A Google account outside `ORG_EMAIL_DOMAIN` → 401 `EMAIL_DOMAIN_NOT_ALLOWED`
+- [x] An email with no employee, or an employee with no accepted invite (created through `POST /employees`) → 403 `NOT_INVITED`
+- [x] A deactivated employee → 403 `ACCOUNT_INACTIVE` on login, and a token issued earlier → 401 on `GET /auth/me`
+- [x] `GET /employees` with no token → 401 `AUTH_REQUIRED`. A tampered token → 401 `INVALID_AUTH_TOKEN`
+- [x] `POST /employees` as a `MANAGER` or `MEMBER` → 403 `FORBIDDEN`, and as an `ADMIN` → 201
+- [x] `POST /invites` as a `MEMBER` → 403, and as a `MANAGER` → 201
+- [x] `POST /invites/accept` still works without a token
+- [x] `npm run auth:bootstrap-admin` creates an admin who can log in, and running it again is a no-op
+- [x] `npm run typecheck`, `npm run build`, `npm run docs:validate` pass
 
 ## Testing notes
 
 - There's no frontend yet. To get a real ID token for the configured client, use a minimal static page with the Google Identity Services button (served from an origin listed in the OAuth client's "Authorized JavaScript origins") that logs `response.credential`. The OAuth 2.0 Playground also works if it's configured to use your own client ID. Paste the token into `POST /auth/google` from Swagger UI.
 - To test the authorization failure paths without extra Google accounts, change the DB: delete or revoke the invite, set `is_active = false`, or set `google_sub` to another value.
+
+## Verified
+
+On 2026-10-17, against the local DB, with test values for `GOOGLE_CLIENT_ID` and `AUTH_JWT_SECRET`:
+
+- `npm run typecheck`, `npm run build` and `npm run docs:validate` pass. The docs check lists 8 routes, including `POST /auth/google` and `GET /auth/me`. `db:migrate` applied 0003, and `db:check` passes.
+- Bootstrap: the first run created an ADMIN and an accepted invite, the second run did nothing, and a non-org email was rejected.
+- HTTP smoke test on a test server (19/19 pass), using access tokens signed with the test secret:
+  - **401 cases:** no header → 401 `AUTH_REQUIRED`. Garbage, expired and wrong-secret tokens → 401 `INVALID_AUTH_TOKEN`. A deactivated employee's token → 401.
+  - **Role checks:** MEMBER `POST /invites` → 403. MANAGER `POST /employees` → 403, MANAGER `POST /invites` → 201. A token claiming ADMIN for a MEMBER → 403, because the DB role wins.
+  - **Responses:** `GET /employees` doesn't include `googleSub`.
+  - **Public routes:** `POST /invites/accept` is public (a garbage token returns 400 `INVALID_INVITE_TOKEN`).
+  - **Login requests:** `POST /auth/google` with no `idToken` → 400, and a garbage `idToken` → 401 `INVALID_GOOGLE_TOKEN` from the real `google-auth-library`.
+- `loginWithGoogle` with `OAuth2Client` stubbed (16/16 pass):
+  - **Authentication:** unverified email, gmail, a subdomain and an `hd` mismatch → 401. A missing `sub` → 401. Unreachable certs → 502 `GOOGLE_UNAVAILABLE`.
+  - **Authorization:** no employee, or no accepted invite → 403 `NOT_INVITED`. Deactivated → 403 `ACCOUNT_INACTIVE`.
+  - **First login:** works with a mixed-case email, binds `google_sub`, and returns a token with `expiresIn` 28800 and the DB role.
+  - **Account binding:** the same sub → ok. A different sub, or a sub already linked to another employee → 403 `GOOGLE_ACCOUNT_MISMATCH`.
+- All test rows were removed afterwards.
+- **Not yet done:** an end-to-end sign-in with a real Google ID token. It needs a real `GOOGLE_CLIENT_ID` and a Google Identity Services test page (see Testing notes).
+
+## Implementation notes
+
+- **New `toEmployeeDto`** (`src/modules/employees/employee.dto.ts`). It's used by every endpoint that returns an employee, including `POST /invites/accept`, so the new `google_sub` column is never exposed.
+- **502 vs 401.** `google.verifier.ts` fetches Google's certs (cached by the library) before verifying, so an outage returns 502 `GOOGLE_UNAVAILABLE` instead of 401.
+- **Request typing.** `req.auth` is typed in `src/types/express.d.ts`.
+- **Docs helpers.** Protected operations use `bearerSecurity` and `authNote(...roles)` from `src/docs/registry.ts`, plus the shared `Unauthorized` and `Forbidden` responses.
+- **Bootstrap default.** `BOOTSTRAP_ADMIN_NAME` defaults to `Admin`.
+- **Removed log.** The leftover `console.log` of the request body in `invite.controller.ts` is gone.
+- **Repository default.** `createEmployeeRepository`'s executor now defaults to `db` (as in `createInviteRepository`), so `setGoogleSubIfUnset` can run conditional updates.
 
 ## Out of scope / follow-ups
 

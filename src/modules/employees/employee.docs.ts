@@ -1,11 +1,14 @@
 import { z } from "zod";
 import {
+  authNote,
+  bearerSecurity,
   errorResponseSchema,
+  forbiddenResponse,
   internalServerErrorResponse,
   jsonResponse,
   paginationMetaSchema,
-  PUBLIC_ACCESS_NOTE,
   registry,
+  unauthorizedResponse,
   validationErrorResponseSchema,
 } from "../../docs/registry";
 import { employeeRole } from "../../db/schema";
@@ -21,7 +24,7 @@ export const exampleEmployee = {
   role: "MANAGER",
 };
 
-// Mirrors the `employees` row returned by the repository (see src/db/schema/employees.ts)
+// Mirrors toEmployeeDto in employee.dto.ts (internal columns like google_sub are not returned)
 export const employeeSchema = registry.register(
   "Employee",
   z
@@ -55,9 +58,11 @@ registry.registerPath({
   description:
     "Creates one employee. `email` is trimmed and lowercased before the uniqueness check, so emails are unique regardless of case. " +
     "Emails of deactivated employees are taken too.\n\n" +
+    "Note: an employee created here has no invite, so they can't sign in until they're invited and accept. " +
+    "Prefer `POST /invites` for new members.\n\n" +
     "**Headers:** `Content-Type: application/json` is required for the body to be parsed.\n\n" +
-    PUBLIC_ACCESS_NOTE,
-  security: [],
+    authNote("ADMIN"),
+  security: bearerSecurity,
   request: {
     body: {
       required: true,
@@ -84,6 +89,8 @@ registry.registerPath({
         ],
       },
     ),
+    401: unauthorizedResponse,
+    403: forbiddenResponse,
     409: jsonResponse("An employee with this email already exists", errorResponseSchema, {
       error: "Employee with email jane.doe@saajha.org already exists",
     }),
@@ -98,8 +105,8 @@ registry.registerPath({
   summary: "List employees",
   description:
     "Returns employees newest first (`createdAt` descending), one page at a time. Deactivated employees are excluded unless `includeInactive=true`.\n\n" +
-    PUBLIC_ACCESS_NOTE,
-  security: [],
+    authNote(),
+  security: bearerSecurity,
   request: { query: listEmployeesQuerySchema },
   responses: {
     200: jsonResponse("A page of employees", employeeListSchema, {
@@ -114,6 +121,7 @@ registry.registerPath({
         details: [{ path: "limit", message: "Too big: expected number to be <=100" }],
       },
     ),
+    401: unauthorizedResponse,
     500: internalServerErrorResponse,
   },
 });
@@ -123,8 +131,8 @@ registry.registerPath({
   path: "/employees/{id}",
   tags: ["Employees"],
   summary: "Get an employee by id",
-  description: `Returns one active employee. A deactivated employee returns 404.\n\n${PUBLIC_ACCESS_NOTE}`,
-  security: [],
+  description: `Returns one active employee. A deactivated employee returns 404.\n\n${authNote()}`,
+  security: bearerSecurity,
   request: { params: employeeIdParamSchema },
   responses: {
     200: jsonResponse("The employee", employeeEnvelopeSchema, { data: exampleEmployee }),
@@ -132,6 +140,7 @@ registry.registerPath({
       error: "Validation failed",
       details: [{ path: "id", message: "Invalid UUID" }],
     }),
+    401: unauthorizedResponse,
     404: jsonResponse("No active employee with this id", errorResponseSchema, { error: "Employee not found" }),
     500: internalServerErrorResponse,
   },
