@@ -1,7 +1,7 @@
 # 05 — Comments (program and task discussions with @mentions)
 
-**Status:** Planned
-**Branch:** `comments` (create it from `tasks` once spec 04 is committed)
+**Status:** Done
+**Branch:** `comments`
 **Depends on:** [01-db-setup](./01-db-setup.md) (`baseColumns()`, `createRepository()`, OpenAPI setup), [03-login](./03-login.md) (`requireAuth`, `req.auth`, `bearerSecurity`, `authNote`, shared 401/403 responses), [04-program-tasks](./04-program-tasks.md) (`programs`, `tasks`, `getActiveProgram()`, `taskRepository.findByRef`, `taskRefParamSchema`, `EmployeeSummary`)
 
 ## Goal
@@ -64,10 +64,12 @@ src/
     comment.repository.ts          createRepository(comments) + thread/list queries
     commentMention.repository.ts   createRepository(commentMentions) + mentionsFor, replaceForComment
     comment.validation.ts          Zod schemas (also drive the docs)
-    comment.dto.ts                 toCommentDto (tombstones, replies, mentions)
+    comment.dto.ts                 toCommentDto / toCommentReplyDto (tombstones, replies, mentions)
     comment.docs.ts
   modules/tasks/
     task.service.ts                CHANGED  export getActiveTask(programId, taskRef): Task (404s)
+  modules/employees/
+    employee.repository.ts         CHANGED  findActiveIds(ids): Set<string> (mention checks)
   docs/registry.ts                 CHANGED  new error codes
   docs/openapi.ts                  CHANGED  import comment.docs; Comments tag
   app.ts                           CHANGED  mount both comment routers in routeModules
@@ -311,8 +313,10 @@ Add the 5 new codes to the `ErrorResponse.code` description in `src/docs/registr
 ## API documentation
 
 - `comment.docs.ts`:
-  - documents all 7 routes and registers `Comment`, `CommentResponse`, `CommentListResponse`, `CreateCommentRequest` and `UpdateCommentRequest` from the Zod schemas
-  - reuses `EmployeeSummary`, `PaginationMeta`, `bearerSecurity` and the shared 401/403 responses, and exports `programNotFoundResponse` from `program.docs.ts`
+  - documents all 7 routes and registers `Comment`, `CommentReply` (a comment without `replies`), `CommentResponse`, `CommentListResponse`, `CreateCommentRequest` and `UpdateCommentRequest` from the Zod schemas
+  - reuses `EmployeeSummary`, `PaginationMeta`, `bearerSecurity`, the shared 401 response and `programNotFoundResponse` from `program.docs.ts`
+  - the 403s on PATCH and DELETE have their own descriptions ("not the author", "a MEMBER who isn't the author") with the same `FORBIDDEN` body, because the shared `Forbidden` response describes a role check
+  - the list responses have a `tombstone` example next to the normal `thread` one
   - the `Comment` schema description covers:
     - tombstones (`isActive: false`, `body: null`, `author: null`)
     - that `replies` appears only on top-level comments
@@ -325,20 +329,28 @@ Add the 5 new codes to the `ErrorResponse.code` description in `src/docs/registr
 
 ## Acceptance checklist
 
-- [ ] Migration `0005_create_comments` generated, reviewed, applied. `npm run db:check` passes
-- [ ] `POST /programs/:pid/comments` → 201, `taskId: null`, `replies: []`, and the author is the caller. `POST …/tasks/MKT-7/comments` (also via the task UUID, and with lowercase `mkt-7`) → 201 with `taskId` set
-- [ ] The program list shows only program comments. The task list shows only that task's comments
-- [ ] A reply (`parentId` = top-level) → 201, and it appears in the parent's `replies`, oldest first. A reply to a reply → 400 `NESTED_REPLY`. A reply whose parent is on another task, or is program-level while the reply is on a task → 400 `PARENT_TARGET_MISMATCH`. A reply to an unknown or deleted parent → 400 `PARENT_COMMENT_NOT_FOUND`
-- [ ] A body mentioning two active employees (one of them twice) → `mentions` has 2 entries and `comment_mentions` has 2 rows. Mentioning an inactive or unknown id → 400 `MENTION_NOT_FOUND`. 21 distinct mentions → 400 `TOO_MANY_MENTIONS`. A plain `@jane` → no mention
-- [ ] An edit by the author → 200, `editedAt` set, and mention rows diffed: a removed person's row is deleted, a kept person's row keeps its `created_at`, and a new person gets a row. An edit by someone else (even an ADMIN) → 403 `FORBIDDEN`. Sending `parentId` in a PATCH → 400
-- [ ] Editing a comment that mentions someone who has since been deactivated still works if that mention is kept
-- [ ] Delete by the author → 204. Delete by another MEMBER → 403. Delete by a MANAGER or ADMIN → 204. After a delete, the mention rows are gone and GET/PATCH/DELETE → 404
-- [ ] Deleting a top-level comment with replies → listed as a tombstone (`isActive: false`, `body: null`, `author: null`) with its replies. Once those replies are deleted too, it's gone from the list, and `meta.total` matches
-- [ ] Soft-deleting the task → its comment routes and its comments by id → 404. Soft-deleting the program → every comment route → 404
-- [ ] Pagination pages threads: `limit=1` returns one top-level comment with all of its replies. `order=desc` puts the newest thread first
-- [ ] An empty or whitespace-only body → 400. 10,001 characters → 400
-- [ ] Every route returns 401 without a token
-- [ ] `npm run typecheck`, `npm run build`, `npm run docs:validate` pass
+- [x] Migration `0005_create_comments` generated, reviewed, applied. `npm run db:check` passes
+- [x] `POST /programs/:pid/comments` → 201, `taskId: null`, `replies: []`, and the author is the caller. `POST …/tasks/MKT-7/comments` (also via the task UUID, and with lowercase `mkt-7`) → 201 with `taskId` set
+- [x] The program list shows only program comments. The task list shows only that task's comments
+- [x] A reply (`parentId` = top-level) → 201, and it appears in the parent's `replies`, oldest first. A reply to a reply → 400 `NESTED_REPLY`. A reply whose parent is on another task, or is program-level while the reply is on a task → 400 `PARENT_TARGET_MISMATCH`. A reply to an unknown or deleted parent → 400 `PARENT_COMMENT_NOT_FOUND`
+- [x] A body mentioning two active employees (one of them twice) → `mentions` has 2 entries and `comment_mentions` has 2 rows. Mentioning an inactive or unknown id → 400 `MENTION_NOT_FOUND`. 21 distinct mentions → 400 `TOO_MANY_MENTIONS`. A plain `@jane` → no mention
+- [x] An edit by the author → 200, `editedAt` set, and mention rows diffed: a removed person's row is deleted, a kept person's row keeps its `created_at`, and a new person gets a row. An edit by someone else (even an ADMIN) → 403 `FORBIDDEN`. Sending `parentId` in a PATCH → 400
+- [x] Editing a comment that mentions someone who has since been deactivated still works if that mention is kept
+- [x] Delete by the author → 204. Delete by another MEMBER → 403. Delete by a MANAGER or ADMIN → 204. After a delete, the mention rows are gone and GET/PATCH/DELETE → 404
+- [x] Deleting a top-level comment with replies → listed as a tombstone (`isActive: false`, `body: null`, `author: null`) with its replies. Once those replies are deleted too, it's gone from the list, and `meta.total` matches
+- [x] Soft-deleting the task → its comment routes and its comments by id → 404. Soft-deleting the program → every comment route → 404
+- [x] Pagination pages threads: `limit=1` returns one top-level comment with all of its replies. `order=desc` puts the newest thread first
+- [x] An empty or whitespace-only body → 400. 10,001 characters → 400
+- [x] Every route returns 401 without a token
+- [x] `npm run typecheck`, `npm run build`, `npm run docs:validate` pass
+
+## Verified
+
+Every checklist item was exercised over HTTP by a throwaway `tsx` script (88 checks). Besides the items above, it covered: a 36-character mention token that isn't a UUID (400 `MENTION_NOT_FOUND`), uppercase mention ids, self-mentions, a body of exactly 10,000 characters, comments on a `DONE` task and a `COMPLETED` program, and a deactivated reply author still being shown. The test rows were deleted afterwards.
+
+Implementation notes:
+- A mention token whose 36 characters aren't a UUID can't match an employee. It fails with `MENTION_NOT_FOUND` and is never sent to Postgres.
+- `PATCH` and `DELETE` lock the comment row (`FOR UPDATE`), and creating a reply locks its parent (`FOR SHARE`). A reply that races a delete of its parent either commits first (the parent then becomes a tombstone) or gets `PARENT_COMMENT_NOT_FOUND`.
 
 ## Testing notes
 

@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { createRepository, type ScopeOptions } from "../../db/repository";
 import { employees, type Employee } from "../../db/schema";
 import { db, type DbExecutor } from "../../db";
@@ -13,6 +13,16 @@ export function createEmployeeRepository(executor: DbExecutor = db) {
 
     findByEmail(emailId: string, opts: ScopeOptions = {}): Promise<Employee | undefined> {
       return base.findOne(eq(employees.emailId, emailId.toLowerCase()), opts);
+    },
+
+    // Which of these ids (all UUIDs) belong to active employees
+    async findActiveIds(ids: string[]): Promise<Set<string>> {
+      if (ids.length === 0) return new Set();
+      const rows = await executor
+        .select({ id: employees.id })
+        .from(employees)
+        .where(and(inArray(employees.id, ids), eq(employees.isActive, true)));
+      return new Set(rows.map((r) => r.id));
     },
 
     // Binds the Google account on first login. Conditional, so a concurrent first

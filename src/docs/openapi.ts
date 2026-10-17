@@ -8,6 +8,7 @@ import "../modules/employees/employee.docs";
 import "../modules/invites/invite.docs";
 import "../modules/programs/program.docs";
 import "../modules/tasks/task.docs";
+import "../modules/comments/comment.docs";
 
 export function buildOpenApiDocument() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
@@ -31,6 +32,7 @@ export function buildOpenApiDocument() {
       { name: "Invites", description: "Invite new members by email and accept invites" },
       { name: "Programs", description: "Programs, the core entity that owns tasks and future research content" },
       { name: "Tasks", description: "Jira-style tasks within a program, including dependencies" },
+      { name: "Comments", description: "Discussion threads on programs and tasks, with @mentions" },
     ],
   });
 }

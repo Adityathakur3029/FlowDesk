@@ -9,6 +9,7 @@ import { employeeRouter } from "./modules/employees/employee.routes";
 import { inviteRouter } from "./modules/invites/invite.routes";
 import { programRouter } from "./modules/programs/program.routes";
 import { taskRouter } from "./modules/tasks/task.routes";
+import { programCommentRouter, taskCommentRouter } from "./modules/comments/comment.routes";
 import { errorHandler } from "./middleware/errorHandler";
 
 // Feature routers and their mount paths. Mount routers here (not with ad-hoc app.use)
@@ -17,6 +18,9 @@ export const routeModules: ReadonlyArray<{ basePath: string; router: Router }> =
   { basePath: "/auth", router: authRouter },
   { basePath: "/employees", router: employeeRouter },
   { basePath: "/invites", router: inviteRouter },
+  // Most specific first
+  { basePath: "/programs/:programId/tasks/:taskRef/comments", router: taskCommentRouter },
+  { basePath: "/programs/:programId/comments", router: programCommentRouter },
   { basePath: "/programs/:programId/tasks", router: taskRouter },
   { basePath: "/programs", router: programRouter },
 ];

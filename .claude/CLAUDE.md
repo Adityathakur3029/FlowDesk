@@ -12,7 +12,7 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
 
 > Data layer: `src/db/index.ts` exposes `db = drizzle(pool)`. Tables live in `src/db/schema/` (exported from `schema/index.ts`) and spread `...baseColumns()` (`id`, `created_at`, `updated_at`, `is_active`). Services go through repositories built with `createRepository()` from `src/db/repository.ts`. See `.claude/specs/01-db-setup.md`.
 
-> Specs: each feature has a design spec in `.claude/specs/NN-<slug>.md`: 01 DB setup, 02 member invites, 03 Google login, 04 programs and tasks. Read the relevant spec before changing a feature, and update it when the behaviour changes.
+> Specs: each feature has a design spec in `.claude/specs/NN-<slug>.md`: 01 DB setup, 02 member invites, 03 Google login, 04 programs and tasks, 05 comments. Read the relevant spec before changing a feature, and update it when the behaviour changes.
 
 ## Commands
 
@@ -52,6 +52,14 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
   - It gets its previous status back when the last blocker is done or removed.
   - Clients can't set it, and they can't change a `DEPENDENT` task's status (409 `TASK_BLOCKED`).
 - See `.claude/specs/04-program-tasks.md` for the full rules.
+
+### Comment (`comments`, `comment_mentions`, `src/modules/comments/`)
+- Is on a program (`task_id` NULL) or on one of its tasks. Program and task comments are listed separately; get/edit/delete use `/programs/:programId/comments/:commentId` for both.
+- One level of replies (`parent_id`). A reply must be on the same target as its parent, and replies can't have replies.
+- @mentions are `@[Name](mention:<employee uuid>)` tokens in the Markdown body, stored in `comment_mentions` (at most 20, each an active employee). Edits diff the rows, so a kept mention's `created_at` survives.
+- Edit: author only. Delete (soft): author, MANAGER or ADMIN. A deleted top-level comment with active replies is listed as a tombstone.
+- Comments are discussion only. The API never writes them on its own (an activity log is a separate future feature).
+- See `.claude/specs/05-comments.md` for the full rules.
 
 ### Planned program scope (future)
 Each program will also hold several kinds of research-related content:

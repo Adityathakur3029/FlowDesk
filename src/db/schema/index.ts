@@ -4,3 +4,4 @@ export * from "./employees";
 export * from "./employeeInvites";
 export * from "./programs";
 export * from "./tasks";
+export * from "./comments";

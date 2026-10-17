@@ -115,10 +115,16 @@ export async function listTasks(programId: string, query: ListTasksQuery, auth: 
   });
 }
 
-export async function getTask(programId: string, taskRef: string): Promise<TaskDetail> {
+// Unknown or soft-deleted program or task -> 404. Routes nested under a task (e.g. comments) use this too.
+export async function getActiveTask(programId: string, taskRef: string): Promise<Task> {
   await getActiveProgram(programId);
   const task = await taskRepository.findByRef(programId, taskRef);
   if (!task) throw taskNotFound();
+  return task;
+}
+
+export async function getTask(programId: string, taskRef: string): Promise<TaskDetail> {
+  const task = await getActiveTask(programId, taskRef);
   return loadDetail(db, task.id);
 }
 
