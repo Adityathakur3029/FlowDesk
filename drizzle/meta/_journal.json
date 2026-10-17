@@ -29,6 +29,13 @@
       "when": 1792234091183,
       "tag": "0003_add_employee_google_sub",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792236705582,
+      "tag": "0004_create_programs_and_tasks",
+      "breakpoints": true
     }
   ]
 }

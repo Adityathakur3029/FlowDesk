@@ -12,6 +12,8 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
 
 > Data layer: `src/db/index.ts` exposes `db = drizzle(pool)`. Tables live in `src/db/schema/` (exported from `schema/index.ts`) and spread `...baseColumns()` (`id`, `created_at`, `updated_at`, `is_active`). Services go through repositories built with `createRepository()` from `src/db/repository.ts`. See `.claude/specs/01-db-setup.md`.
 
+> Specs: each feature has a design spec in `.claude/specs/NN-<slug>.md`: 01 DB setup, 02 member invites, 03 Google login, 04 programs and tasks. Read the relevant spec before changing a feature, and update it when the behaviour changes.
+
 ## Commands
 
 | Command         | Purpose                            |
@@ -22,21 +24,34 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
 | `npm run typecheck` | Type-check without emitting |
 | `npm run db:generate -- --name <change>` | Generate a SQL migration from schema changes |
 | `npm run db:migrate` | Apply pending migrations (`db:migrate:prod` runs from `dist/`) |
+| `npm run db:check` | Check the migration history is consistent |
 | `npm run db:studio` | Open Drizzle Studio |
+| `npm run docs:validate` | Validate the OpenAPI spec and check every route is documented |
+| `npm run auth:bootstrap-admin` | Create the first ADMIN (reads `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_NAME`) |
 
 ## Domain model
 
 **Program** is the core entity. Everything else belongs to a program.
 
-### Program
-- Has a **status**, which tracks its lifecycle.
+### Program (`programs`, `src/modules/programs/`)
+- Has a short uppercase **key** (`MKT`), which prefixes its task keys. The key can't be changed, and it stays taken after the program is soft-deleted.
+- Has a **status** (`PLANNED`, `ACTIVE`, `ON_HOLD`, `COMPLETED`, `CANCELLED`), with no transition rules yet.
 - Owns many **tasks**.
 - Will later own other kinds of work (see below).
+- Soft-deleting a program makes every route under it return 404.
 
-### Task
+### Task (`tasks`, `src/modules/tasks/`)
 - Belongs to exactly one program.
-- Can be **assigned** to a user (the assignee).
-- Has its own status.
+- Has a Jira-style key, `<program key>-<n>` (`MKT-42`). Numbers come from `programs.task_counter`, run per program and are never reused. Routes accept the task UUID or its key.
+- Can be **assigned** to an employee (the assignee). The **reporter** is whoever created it.
+- Has a title, description, priority, start date, due date, estimate (in minutes) and labels.
+- Has a status: `DISCUSSION`, `ON_HOLD`, `IN_PROGRESS`, `DONE` or `DEPENDENT`.
+- Can depend on other tasks in the same program (`task_dependencies`, "is blocked by"). Loops aren't allowed, and a task can have at most 50 blockers.
+- `DEPENDENT` is **automatic**:
+  - A task with an unfinished blocker becomes `DEPENDENT`.
+  - It gets its previous status back when the last blocker is done or removed.
+  - Clients can't set it, and they can't change a `DEPENDENT` task's status (409 `TASK_BLOCKED`).
+- See `.claude/specs/04-program-tasks.md` for the full rules.
 
 ### Planned program scope (future)
 Each program will also hold several kinds of research-related content:
@@ -51,7 +66,22 @@ Design the schema and APIs so these can be added later as program-owned entities
 
 - Every program-owned table has a `programId` foreign key to `programs.id`.
 - Scope API routes under programs where it makes sense, e.g. `/programs/:programId/tasks`.
+  - A program-scoped module uses `Router({ mergeParams: true })` and is mounted in `routeModules` in `src/app.ts` at `/programs/:programId/<things>`. Mount routers only through `routeModules`, because `docs:validate` reads it.
+  - Resolve the program first with `getActiveProgram()` (`program.service.ts`), so unknown and soft-deleted programs return 404.
 - Keep the Drizzle schema in a dedicated location (e.g. `src/db/schema/`) and manage schema changes through Drizzle migrations.
+- Request flow: **route → `requireAuth` (→ `requireRole`) → controller (Zod parse) → service → repository → Drizzle**.
+  - Services don't build queries.
+  - Multi-step writes use `withTransaction()` and pass the transaction to repositories with `.withTx(tx)`.
+- **Auth:**
+  - Every route except `POST /auth/google`, `POST /invites/accept`, `/health-check` and the docs routes needs `Authorization: Bearer <token>`, checked by `requireAuth` in `src/middleware/auth.ts`.
+  - Roles are `ADMIN`, `MANAGER` and `MEMBER`, checked with `requireRole(...)`. Rules that depend on the row (for example, a task's reporter may delete it) go in the service and throw `ForbiddenError(…, "FORBIDDEN")`.
+- **Errors:** services throw the classes in `src/lib/errors.ts` with a machine-readable `code`. Add every new code to the `ErrorResponse.code` description in `src/docs/registry.ts`.
+- **Responses:**
+  - Successful responses use `{ data }`, plus `meta` on paginated lists.
+  - Map rows through a `to<Entity>Dto()` function so internal columns are never returned (`google_sub`, `task_counter`, `status_before_dependent`).
+- **Task graph writes:**
+  - Any write that can change task dependencies, or whether a task is `DONE`, must lock the program row first (`programRepository.lockForUpdate`, or `nextTaskNumber` on create) inside the transaction.
+  - Only `syncDependentStatus()` in `src/modules/tasks/task.dependencyStatus.ts` sets or clears `DEPENDENT`.
 
 ## API Documentation Rules
 

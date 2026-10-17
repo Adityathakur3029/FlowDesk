@@ -19,8 +19,14 @@ export const errorResponseSchema = registry.register(
           "Machine-readable error code, present on errors that have one: INVALID_INVITE_TOKEN, INVITE_REVOKED, " +
           "INVITE_ALREADY_ACCEPTED, INVITE_PENDING, INVITE_EXPIRED, EMPLOYEE_EXISTS, EMAIL_DELIVERY_FAILED, " +
           "AUTH_REQUIRED, INVALID_AUTH_TOKEN, FORBIDDEN, INVALID_GOOGLE_TOKEN, GOOGLE_EMAIL_NOT_VERIFIED, " +
-          "EMAIL_DOMAIN_NOT_ALLOWED, NOT_INVITED, ACCOUNT_INACTIVE, GOOGLE_ACCOUNT_MISMATCH, GOOGLE_UNAVAILABLE",
+          "EMAIL_DOMAIN_NOT_ALLOWED, NOT_INVITED, ACCOUNT_INACTIVE, GOOGLE_ACCOUNT_MISMATCH, GOOGLE_UNAVAILABLE, " +
+          "PROGRAM_KEY_EXISTS, ASSIGNEE_NOT_FOUND, INVALID_DATE_RANGE, TASK_BLOCKED, TASK_DONE, DEPENDENCY_TASK_NOT_FOUND, " +
+          "DEPENDENCY_OTHER_PROGRAM, SELF_DEPENDENCY, DEPENDENCY_EXISTS, DEPENDENCY_LIMIT_REACHED, DEPENDENCY_CYCLE",
         example: "INVITE_EXPIRED",
+      }),
+      details: z.unknown().optional().meta({
+        description: "Extra context on some errors, e.g. the open blockers on TASK_BLOCKED",
+        example: { blockers: [{ id: "0e6c1f2a-4b8d-4c3e-9f7a-1d2b3c4d5e6f", key: "MKT-3", title: "Finalise sample", status: "IN_PROGRESS" }] },
       }),
     })
     .meta({
@@ -63,6 +69,20 @@ export const paginationMetaSchema = registry.register(
     limit: z.number().int().meta({ description: "Page size used", example: 20 }),
     offset: z.number().int().meta({ description: "Rows skipped", example: 0 }),
   }),
+);
+
+export const employeeSummarySchema = registry.register(
+  "EmployeeSummary",
+  z
+    .object({
+      id: z.uuid(),
+      name: z.string(),
+      emailId: z.email(),
+    })
+    .meta({
+      description: "Short form of an employee, embedded in other resources",
+      example: { id: "baac08e5-eaef-46f0-ac9e-f8b7266c71e0", name: "Jane Doe", emailId: "jane.doe@saajha.org" },
+    }),
 );
 
 // ---- Shared responses ----

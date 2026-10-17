@@ -7,6 +7,8 @@ import { buildOpenApiDocument } from "./docs/openapi";
 import { authRouter } from "./modules/auth/auth.routes";
 import { employeeRouter } from "./modules/employees/employee.routes";
 import { inviteRouter } from "./modules/invites/invite.routes";
+import { programRouter } from "./modules/programs/program.routes";
+import { taskRouter } from "./modules/tasks/task.routes";
 import { errorHandler } from "./middleware/errorHandler";
 
 // Feature routers and their mount paths. Mount routers here (not with ad-hoc app.use)
@@ -15,6 +17,8 @@ export const routeModules: ReadonlyArray<{ basePath: string; router: Router }> =
   { basePath: "/auth", router: authRouter },
   { basePath: "/employees", router: employeeRouter },
   { basePath: "/invites", router: inviteRouter },
+  { basePath: "/programs/:programId/tasks", router: taskRouter },
+  { basePath: "/programs", router: programRouter },
 ];
 
 export const app = express();

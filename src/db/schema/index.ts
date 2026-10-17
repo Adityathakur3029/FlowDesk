@@ -2,3 +2,5 @@
 // Export every new table/enum from here so migrations pick it up.
 export * from "./employees";
 export * from "./employeeInvites";
+export * from "./programs";
+export * from "./tasks";
