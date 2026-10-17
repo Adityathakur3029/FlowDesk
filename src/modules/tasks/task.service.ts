@@ -86,6 +86,7 @@ export async function createTask(programId: string, input: CreateTaskInput, repo
       key: `${numbered.key}-${numbered.number}`,
       title: input.title,
       description: input.description ?? null,
+      type: input.type,
       status: input.status,
       priority: input.priority,
       assigneeId: input.assigneeId ?? null,

@@ -38,6 +38,7 @@ const sortColumns = {
   updatedAt: tasks.updatedAt,
   dueDate: tasks.dueDate,
   priority: tasks.priority,
+  type: tasks.type,
 } as const;
 
 // Generic CRUD from createRepository plus joined reads for the API
@@ -69,6 +70,7 @@ export function createTaskRepository(executor: DbExecutor = db) {
       eq(tasks.isActive, true),
       f.status ? inArray(tasks.status, f.status) : undefined,
       f.priority ? inArray(tasks.priority, f.priority) : undefined,
+      f.type ? inArray(tasks.type, f.type) : undefined,
       f.assigneeId ? eq(tasks.assigneeId, f.assigneeId) : undefined,
       f.unassigned === true ? isNull(tasks.assigneeId) : undefined,
       f.unassigned === false ? sql`${tasks.assigneeId} is not null` : undefined,

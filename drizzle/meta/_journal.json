@@ -50,6 +50,13 @@
       "when": 1792239409896,
       "tag": "0006_create_teams",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792240990166,
+      "tag": "0007_add_task_type",
+      "breakpoints": true
     }
   ]
 }

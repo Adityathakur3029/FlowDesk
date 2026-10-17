@@ -19,6 +19,8 @@ import { programs } from "./programs";
 export const taskStatus = pgEnum("task_status", ["DISCUSSION", "ON_HOLD", "IN_PROGRESS", "DONE", "DEPENDENT"]);
 // Declaration order is the sort order (LOWEST < HIGHEST)
 export const taskPriority = pgEnum("task_priority", ["LOWEST", "LOW", "MEDIUM", "HIGH", "HIGHEST"]);
+// Informational kind of work; declaration order is the sort order. See .claude/specs/07-task-types.md
+export const taskType = pgEnum("task_type", ["PRE", "TASK", "POST", "BUG", "ISSUE"]);
 
 // Jira-style tasks owned by a program. See .claude/specs/04-program-tasks.md
 export const tasks = pgTable(
@@ -34,6 +36,7 @@ export const tasks = pgTable(
     key: varchar("key", { length: 24 }).notNull().unique("tasks_key_unique"),
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
+    type: taskType("type").notNull().default("TASK"),
     status: taskStatus("status").notNull().default("DISCUSSION"),
     // Status to restore when the last open blocker is done; set only while status = DEPENDENT
     statusBeforeDependent: taskStatus("status_before_dependent"),
@@ -60,6 +63,7 @@ export const tasks = pgTable(
       sql`(${t.status} = 'DEPENDENT') = (${t.statusBeforeDependent} IS NOT NULL)`,
     ),
     index("tasks_program_status_idx").on(t.programId, t.status),
+    index("tasks_program_type_idx").on(t.programId, t.type),
     index("tasks_assignee_id_idx").on(t.assigneeId),
     index("tasks_due_date_idx").on(t.dueDate),
     index("tasks_labels_idx").using("gin", t.labels),
@@ -92,4 +96,5 @@ export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 export type TaskStatus = (typeof taskStatus.enumValues)[number];
 export type TaskPriority = (typeof taskPriority.enumValues)[number];
+export type TaskType = (typeof taskType.enumValues)[number];
 export type TaskDependency = typeof taskDependencies.$inferSelect;

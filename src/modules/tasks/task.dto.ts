@@ -14,6 +14,7 @@ export function toTaskDto({ task, assignee, reporter, isDependent }: TaskView) {
     number: task.number,
     title: task.title,
     description: task.description,
+    type: task.type,
     status: task.status,
     priority: task.priority,
     assignee,

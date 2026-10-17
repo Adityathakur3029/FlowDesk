@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { taskPriority, taskStatus } from "../../db/schema";
+import { taskPriority, taskStatus, taskType } from "../../db/schema";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../../db/repository";
 import { programIdParamSchema } from "../programs/program.validation";
 
@@ -40,6 +40,16 @@ export const taskPrioritySchema = z
   .enum(taskPriority.enumValues)
   .meta({ id: "TaskPriority", description: "LOWEST < LOW < MEDIUM < HIGH < HIGHEST", example: "HIGH" });
 
+export const taskTypeSchema = z.enum(taskType.enumValues).meta({
+  id: "TaskType",
+  description:
+    "PRE: prerequisite work before the program starts. TASK: the program's main work (default). " +
+    "POST: work after the program ends. BUG: something broken to fix. ISSUE: a problem, risk or question to resolve. " +
+    "The type is informational: it doesn't affect status, dependencies or the program's status. " +
+    "Sort order is PRE < TASK < POST < BUG < ISSUE.",
+  example: "PRE",
+});
+
 const labelSchema = z
   .string()
   .trim()
@@ -65,6 +75,7 @@ const taskFields = {
     description: "Plain text or Markdown, stored as-is; at most 20,000 characters; null clears it",
     example: "Cover pricing, channels and brand recall.",
   }),
+  type: taskTypeSchema,
   status: settableStatusSchema,
   priority: taskPrioritySchema,
   assigneeId: z.uuid().nullable().meta({
@@ -87,6 +98,7 @@ export const createTaskSchema = z
   .object({
     title: taskFields.title,
     description: taskFields.description.optional(),
+    type: taskFields.type.default("TASK").meta({ description: "Defaults to TASK" }),
     status: taskFields.status.default("DISCUSSION").meta({ description: "Defaults to DISCUSSION. DEPENDENT is rejected." }),
     priority: taskFields.priority.default("MEDIUM").meta({ description: "Defaults to MEDIUM" }),
     assigneeId: taskFields.assigneeId.optional(),
@@ -114,6 +126,7 @@ export const updateTaskSchema = z
     {
       title: taskFields.title.optional(),
       description: taskFields.description.optional(),
+      type: taskFields.type.optional(),
       status: taskFields.status.optional(),
       priority: taskFields.priority.optional(),
       assigneeId: taskFields.assigneeId.optional(),
@@ -158,6 +171,10 @@ export const listTasksQuerySchema = z
       description: "Comma-separated priorities; matches any",
       example: "HIGH,HIGHEST",
     }),
+    type: csv.pipe(z.array(taskTypeSchema).min(1)).optional().meta({
+      description: "Comma-separated task types; matches any (e.g. `PRE,POST`)",
+      example: "PRE,POST",
+    }),
     assigneeId: z.union([z.literal("me"), z.uuid()]).optional().meta({
       description: "Employee UUID, or `me` for the signed-in employee. Can't be combined with `unassigned`.",
       example: "me",
@@ -184,8 +201,9 @@ export const listTasksQuerySchema = z
       description: "Case-insensitive substring of the title, or an exact task key (case-insensitive); 1-100 characters",
       example: "survey",
     }),
-    sort: z.enum(["number", "createdAt", "updatedAt", "dueDate", "priority"]).default("number").meta({
-      description: "Sort field. Tasks without a due date sort last; `number` breaks ties.",
+    sort: z.enum(["number", "createdAt", "updatedAt", "dueDate", "priority", "type"]).default("number").meta({
+      description:
+        "Sort field. `type` sorts PRE < TASK < POST < BUG < ISSUE. Tasks without a due date sort last; `number` breaks ties.",
       example: "number",
     }),
     order: z.enum(["asc", "desc"]).default("desc").meta({ description: "Sort direction", example: "desc" }),

@@ -22,6 +22,7 @@ import {
   taskPrioritySchema,
   taskRefParamSchema,
   taskStatusSchema,
+  taskTypeSchema,
   updateTaskSchema,
 } from "./task.validation";
 
@@ -44,6 +45,7 @@ export const exampleTask = {
   number: 7,
   title: "Draft survey questions",
   description: "Cover pricing, channels and brand recall.",
+  type: "PRE",
   status: "DEPENDENT",
   priority: "HIGH",
   assignee: { id: "baac08e5-eaef-46f0-ac9e-f8b7266c71e0", name: "Jane Doe", emailId: "jane.doe@saajha.org" },
@@ -80,6 +82,7 @@ const taskShape = {
   number: z.number().int().meta({ description: "Per-program sequence number" }),
   title: z.string().meta({ description: "The task heading" }),
   description: z.string().nullable(),
+  type: taskTypeSchema,
   status: taskStatusSchema,
   priority: taskPrioritySchema,
   assignee: employeeSummarySchema.nullable().meta({ description: "null when unassigned" }),
@@ -179,7 +182,7 @@ registry.registerPath({
   summary: "Create a task",
   description:
     "Creates a task in the program and gives it the next key (`MKT-1`, `MKT-2`…; numbers are never reused). " +
-    "The signed-in employee becomes the reporter. `dependsOn` links blockers in the same program; if any is unfinished the task " +
+    "The signed-in employee becomes the reporter. `type` defaults to `TASK`; it is informational and has no rules of its own. `dependsOn` links blockers in the same program; if any is unfinished the task " +
     "starts as `DEPENDENT`, and the requested status is restored once they are done.\n\n" +
     "Rules, in order: the program must be active (404); `assigneeId` must be an active employee (400 `ASSIGNEE_NOT_FOUND`); " +
     "`dueDate` on or after `startDate` (400 `INVALID_DATE_RANGE`); each `dependsOn` id an active task (400 `DEPENDENCY_TASK_NOT_FOUND`) " +
@@ -196,6 +199,7 @@ registry.registerPath({
           example: {
             title: "Draft survey questions",
             description: "Cover pricing, channels and brand recall.",
+            type: "PRE",
             status: "IN_PROGRESS",
             priority: "HIGH",
             assigneeId: "baac08e5-eaef-46f0-ac9e-f8b7266c71e0",
@@ -245,7 +249,7 @@ registry.registerPath({
   responses: {
     200: jsonResponse("A page of tasks", taskListSchema, { data: [exampleTask], meta: { total: 1, limit: 20, offset: 0 } }),
     400: jsonResponse(
-      "Invalid path or query parameter: unknown status/priority, bad UUID, bad date, `assigneeId` combined with `unassigned`, " +
+      "Invalid path or query parameter: unknown status/priority/type, bad UUID, bad date, `assigneeId` combined with `unassigned`, " +
         "`dueFrom` after `dueTo`, `limit` outside 1-100…",
       validationErrorResponseSchema,
       { error: "Validation failed", details: [{ path: "unassigned", message: "Use either assigneeId or unassigned, not both" }] },
@@ -285,7 +289,8 @@ registry.registerPath({
   summary: "Update a task",
   description:
     "Updates any subset of the task's fields; at least one is required. Nullable fields accept null to clear them, and `labels` replaces " +
-    "the whole list. Dependencies change only through the dependency endpoints, so `dependsOn` is rejected.\n\n" +
+    "the whole list. `type` can change at any time, including on `DONE` and `DEPENDENT` tasks, and never changes the status. " +
+    "Dependencies change only through the dependency endpoints, so `dependsOn` is rejected.\n\n" +
     "Rules, in order: `assigneeId` must be an active employee (400 `ASSIGNEE_NOT_FOUND`); the **merged** `startDate`/`dueDate` must be in order " +
     "(400 `INVALID_DATE_RANGE`); then the status rules.\n\n" +
     `${STATUS_RULES}\n\n${BODY_HEADER}\n\n${authNote()}`,

@@ -12,7 +12,7 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
 
 > Data layer: `src/db/index.ts` exposes `db = drizzle(pool)`. Tables live in `src/db/schema/` (exported from `schema/index.ts`) and spread `...baseColumns()` (`id`, `created_at`, `updated_at`, `is_active`). Services go through repositories built with `createRepository()` from `src/db/repository.ts`. See `.claude/specs/01-db-setup.md`.
 
-> Specs: each feature has a design spec in `.claude/specs/NN-<slug>.md`: 01 DB setup, 02 member invites, 03 Google login, 04 programs and tasks, 05 comments, 06 teams. Read the relevant spec before changing a feature, and update it when the behaviour changes.
+> Specs: each feature has a design spec in `.claude/specs/NN-<slug>.md`: 01 DB setup, 02 member invites, 03 Google login, 04 programs and tasks, 05 comments, 06 teams, 07 task types. Read the relevant spec before changing a feature, and update it when the behaviour changes.
 
 ## Commands
 
@@ -45,6 +45,7 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
 - Has a Jira-style key, `<program key>-<n>` (`MKT-42`). Numbers come from `programs.task_counter`, run per program and are never reused. Routes accept the task UUID or its key.
 - Can be **assigned** to an employee (the assignee). The **reporter** is whoever created it.
 - Has a title, description, priority, start date, due date, estimate (in minutes) and labels.
+- Has one **type**: `PRE` (prerequisite), `TASK` (main work, the default), `POST` (post-program), `BUG` or `ISSUE`. It's informational only: it changes no status, dependency or program rule, and every type shares the program's key sequence. See `.claude/specs/07-task-types.md`.
 - Has a status: `DISCUSSION`, `ON_HOLD`, `IN_PROGRESS`, `DONE` or `DEPENDENT`.
 - Can depend on other tasks in the same program (`task_dependencies`, "is blocked by"). Loops aren't allowed, and a task can have at most 50 blockers.
 - `DEPENDENT` is **automatic**:
