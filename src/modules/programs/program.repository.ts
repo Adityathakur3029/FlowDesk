@@ -1,4 +1,4 @@
-import { and, eq, ilike, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { createRepository, type ScopeOptions } from "../../db/repository";
 import { programs, type Program } from "../../db/schema";
 import { db, type DbExecutor } from "../../db";
@@ -22,6 +22,16 @@ export function createProgramRepository(executor: DbExecutor = db) {
 
     searchWhere(q: string): SQL {
       return or(ilike(programs.name, likeContains(q)), ilike(programs.key, likeContains(q)))!;
+    },
+
+    // Active programs owned by a team, by key; used to block a team delete
+    findActiveByOwnerTeam(teamId: string, limit: number): Promise<Pick<Program, "id" | "key" | "name">[]> {
+      return executor
+        .select({ id: programs.id, key: programs.key, name: programs.name })
+        .from(programs)
+        .where(and(eq(programs.ownerTeamId, teamId), eq(programs.isActive, true)))
+        .orderBy(asc(programs.key))
+        .limit(limit);
     },
 
     // Hands out the next task number. The UPDATE also locks the program row until the

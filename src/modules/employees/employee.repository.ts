@@ -1,5 +1,5 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
-import { createRepository, type ScopeOptions } from "../../db/repository";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { createRepository, type Page, type ScopeOptions } from "../../db/repository";
 import { employees, type Employee } from "../../db/schema";
 import { db, type DbExecutor } from "../../db";
 
@@ -23,6 +23,21 @@ export function createEmployeeRepository(executor: DbExecutor = db) {
         .from(employees)
         .where(and(inArray(employees.id, ids), eq(employees.isActive, true)));
       return new Set(rows.map((r) => r.id));
+    },
+
+    // Active members of a team, by name
+    findTeamMembersPage(teamId: string, opts: { limit: number; offset: number }): Promise<Page<Employee>> {
+      return base.findPage({ ...opts, where: eq(employees.teamId, teamId), orderBy: [asc(employees.name), asc(employees.id)] });
+    },
+
+    // Moves the employee into the team (out of any other one)
+    setTeam(id: string, teamId: string | null): Promise<Employee | undefined> {
+      return base.updateById(id, { teamId });
+    },
+
+    // Releases every member of a team, inactive employees included
+    async clearTeam(teamId: string): Promise<void> {
+      await executor.update(employees).set({ teamId: null }).where(eq(employees.teamId, teamId));
     },
 
     // Binds the Google account on first login. Conditional, so a concurrent first

@@ -22,6 +22,7 @@ export const exampleEmployee = {
   emailId: "jane.doe@saajha.org",
   name: "Jane Doe",
   role: "MANAGER",
+  teamId: null,
 };
 
 // Mirrors toEmployeeDto in employee.dto.ts (internal columns like google_sub are not returned)
@@ -36,6 +37,7 @@ export const employeeSchema = registry.register(
       emailId: z.email().meta({ description: "Lowercased organisation email" }),
       name: z.string(),
       role: z.enum(employeeRole.enumValues),
+      teamId: z.uuid().nullable().meta({ description: "The employee's team; null when not in a team. An employee is in at most one team." }),
     })
     .meta({ example: exampleEmployee }),
 );
@@ -114,7 +116,7 @@ registry.registerPath({
       meta: { total: 1, limit: 20, offset: 0 },
     }),
     400: jsonResponse(
-      "Invalid query parameter: unknown `role`, a non-boolean `includeInactive`, `limit` outside 1-100, or a negative `offset`",
+      "Invalid query parameter: unknown `role`, `teamId` not a UUID or `none`, a non-boolean `includeInactive`, `limit` outside 1-100, or a negative `offset`",
       validationErrorResponseSchema,
       {
         error: "Validation failed",

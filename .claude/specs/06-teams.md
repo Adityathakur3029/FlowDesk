@@ -1,6 +1,6 @@
 # 06 — Teams (employee teams and program owner teams)
 
-**Status:** Planned
+**Status:** Done
 **Branch:** `teams`
 **Depends on:** [01-db-setup](./01-db-setup.md) (`baseColumns()`, `createRepository()`, `withTransaction()`, OpenAPI setup), [03-login](./03-login.md) (`requireAuth`, `requireRole`, `bearerSecurity`, `authNote`, shared 401/403 responses), [04-program-tasks](./04-program-tasks.md) (`programs`, `getActiveProgram()`, `likeContains()`, program docs)
 
@@ -333,25 +333,67 @@ Add the three new codes to the `ErrorResponse.code` description in `src/docs/reg
 
 ## Acceptance checklist
 
-- [ ] Migration `0006_create_teams` generated, reviewed, applied. It holds nullable columns only. `npm run db:check` passes
-- [ ] `POST /teams` as a MANAGER → 201, `memberCount: 0`. As a MEMBER → 403. `"research"` while an active `"Research"` exists → 409 `TEAM_NAME_EXISTS`. After deleting `Research`, creating it again → 201
-- [ ] `PATCH /teams/:id` renaming to another active team's name → 409. Renaming to its own name in a different case → 200. An empty body or an unknown field → 400
-- [ ] `PUT /teams/A/members/E` → 200, `previousTeamId: null`, `employee.teamId = A`. Again → 200, `previousTeamId = A`. `PUT /teams/B/members/E` → 200, `previousTeamId = A`, and E appears in B's members and not in A's. `memberCount` follows
-- [ ] PUT with an inactive or unknown employee → 404 `Employee not found`. With a deleted team → 404 `Team not found`. As a MEMBER → 403
-- [ ] `DELETE /teams/B/members/E` → 204, and `teamId` is null. Again, or for an employee in another team → 404 `Team member not found`
-- [ ] `GET /employees?teamId=<A>` and `?teamId=none` filter correctly. `?teamId=abc` → 400. `/auth/me` returns `teamId`
-- [ ] `POST /programs` without `ownerTeamId` → 400. With a deleted or unknown team → 400 `OWNER_TEAM_NOT_FOUND`. With an active team → 201, with `ownerTeamId` set
-- [ ] `PATCH /programs/:id { ownerTeamId: B }` → 200. `{ ownerTeamId: null }` → 400. A PATCH without `ownerTeamId` leaves it unchanged. `GET /programs?ownerTeamId=B` lists the program
-- [ ] `DELETE /teams/A` as a MANAGER → 403. As an ADMIN while A owns an active program → 409 `TEAM_OWNS_PROGRAMS`, with that program in `details.programs`. After the program moves to B (or is soft-deleted) → 204, A's former members have `teamId: null`, and `GET /teams/A` → 404
-- [ ] A program created before this migration shows `ownerTeamId: null`, and can be given a team with PATCH
-- [ ] Every team route returns 401 without a token
-- [ ] `npm run typecheck`, `npm run build`, `npm run docs:validate` pass
+- [x] Migration `0006_create_teams` generated, reviewed, applied. It holds nullable columns only. `npm run db:check` passes
+- [x] `POST /teams` as a MANAGER → 201, `memberCount: 0`. As a MEMBER → 403. `"research"` while an active `"Research"` exists → 409 `TEAM_NAME_EXISTS`. After deleting `Research`, creating it again → 201
+- [x] `PATCH /teams/:id` renaming to another active team's name → 409. Renaming to its own name in a different case → 200. An empty body or an unknown field → 400
+- [x] `PUT /teams/A/members/E` → 200, `previousTeamId: null`, `employee.teamId = A`. Again → 200, `previousTeamId = A`. `PUT /teams/B/members/E` → 200, `previousTeamId = A`, and E appears in B's members and not in A's. `memberCount` follows
+- [x] PUT with an inactive or unknown employee → 404 `Employee not found`. With a deleted team → 404 `Team not found`. As a MEMBER → 403 *(exercised with an inactive employee; an unknown id takes the same lookup path)*
+- [x] `DELETE /teams/B/members/E` → 204, and `teamId` is null. Again, or for an employee in another team → 404 `Team member not found`
+- [x] `GET /employees?teamId=<A>` and `?teamId=none` filter correctly. `?teamId=abc` → 400. `/auth/me` returns `teamId`
+- [x] `POST /programs` without `ownerTeamId` → 400. With a deleted or unknown team → 400 `OWNER_TEAM_NOT_FOUND`. With an active team → 201, with `ownerTeamId` set
+- [x] `PATCH /programs/:id { ownerTeamId: B }` → 200. `{ ownerTeamId: null }` → 400. A PATCH without `ownerTeamId` leaves it unchanged. `GET /programs?ownerTeamId=B` lists the program
+- [x] `DELETE /teams/A` as a MANAGER → 403. As an ADMIN while A owns an active program → 409 `TEAM_OWNS_PROGRAMS`, with that program in `details.programs`. After the program moves to B (or is soft-deleted) → 204, A's former members have `teamId: null`, and `GET /teams/A` → 404
+- [x] A program created before this migration shows `ownerTeamId: null`, and can be given a team with PATCH
+- [ ] Every team route returns 401 without a token *(exercised on `GET /teams` only; every route in `team.routes.ts` has `requireAuth`)*
+- [x] `npm run typecheck`, `npm run build`, `npm run docs:validate` pass
 
 ## Testing notes
 
 - Get a token the way spec 03 does (`npm run auth:bootstrap-admin` plus a real or test-signed token), then use Swagger UI at `/docs`.
 - To check the delete/attach lock, open two transactions in `psql`. In the first, `SELECT … FROM teams WHERE id = :A FOR SHARE` (as program create does), then run `DELETE /teams/A` from the API. The delete should wait until the first transaction ends, then see the new program and return 409.
 - Existing local programs show `ownerTeamId: null` right after the migration. That's the legacy case in the checklist.
+
+## Verified
+
+On 2026-10-17, against the local DB:
+
+- Migration `0006_create_teams` was generated and reviewed: one `CREATE TABLE`, two nullable `ADD COLUMN`s, the FKs and three indexes, with no hand edits. It was applied, and `npm run db:check` passes.
+- `npm run typecheck`, `npm run build` and `npm run docs:validate` pass. The docs check lists 36 routes, 8 of them new.
+- HTTP smoke test on a test server (46/46 pass). It used test employees (ADMIN, MANAGER, two MEMBERs, one inactive) and access tokens signed with the configured secret.
+  - **Teams:**
+    - a MANAGER can create, a MEMBER gets 403
+    - a duplicate name in another case gets 409, a rename to another team's name gets 409, and a rename to its own name in another case is allowed
+    - an empty or unknown-field PATCH gets 400
+    - `q` search, a bad UUID (400), an unknown team (404)
+    - a deleted team's name can be reused
+  - **Membership:**
+    - add (`previousTeamId: null`), an idempotent repeat (`previousTeamId` = the team), and a move (`previousTeamId` = the old team)
+    - member lists and `memberCount` follow the moves
+    - an inactive employee gets 404, a MEMBER gets 403
+    - remove works, and removing again or from the wrong team gets 404 `Team member not found`
+    - `GET /employees?teamId=<id>|none` filters, `teamId=abc` gets 400, and `/auth/me` returns `teamId`
+  - **Owner team:**
+    - create without `ownerTeamId` (400) or with an unknown team (400 `OWNER_TEAM_NOT_FOUND`) fails, and create with a team works
+    - `PROGRAM_KEY_EXISTS` still applies
+    - a PATCH with `ownerTeamId: null` gets 400 "A program must have an owner team", and a PATCH without it keeps it
+    - moving a program to another team, the `ownerTeamId` list filter, and a PATCH to a deleted team (400)
+    - a legacy program (inserted without a team) shows `ownerTeamId: null` and can be given one
+  - **Delete:**
+    - a MANAGER gets 403, and an owning team gets 409 with the program in `details.programs`
+    - after the program moves, it returns 204, the team returns 404, members (including an inactive one) are released, and PUT to the deleted team gets 404
+- **Lock check:** one transaction held `FOR SHARE` on a team and inserted a program it owns, and then `DELETE /teams/:id` was sent. The delete waited while the lock was held. After the commit, it returned 409 `TEAM_OWNS_PROGRAMS`.
+- All test rows were removed afterwards.
+
+## Implementation notes
+
+- **Where the queries live:**
+  - The member list is `employeeRepository.findTeamMembersPage`, and the team service calls it after checking the team.
+  - Member counts come from one grouped query per page (`memberCounts` in `team.repository.ts`), used by `findByIdWithCount` and `findPageWithCounts`.
+- **Program create:** the key check now runs inside the same transaction as the owner team lock. The unique-violation race still maps to `PROGRAM_KEY_EXISTS`.
+- **Docs:**
+  - The members list response is registered as `TeamMemberListResponse`.
+  - The program create and PATCH 400s now show both the validation shape and the `OWNER_TEAM_NOT_FOUND` shape (`badRequest` in `program.docs.ts`, the same pattern as the task docs).
+  - The shared `exampleEmployee` has `teamId: null`.
 
 ## Out of scope / follow-ups
 

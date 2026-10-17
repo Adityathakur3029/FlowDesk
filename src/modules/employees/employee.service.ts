@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { employees, type Employee } from "../../db/schema";
 import type { Page } from "../../db/repository";
 import { ConflictError, getPgErrorCode, NotFoundError, PG_UNIQUE_VIOLATION } from "../../lib/errors";
@@ -32,8 +32,10 @@ export async function getEmployee(id: string): Promise<Employee> {
 }
 
 export function listEmployees(query: ListEmployeesQuery): Promise<Page<Employee>> {
+  const teamWhere =
+    query.teamId === "none" ? isNull(employees.teamId) : query.teamId ? eq(employees.teamId, query.teamId) : undefined;
   return employeeRepository.findPage({
-    where: query.role ? eq(employees.role, query.role) : undefined,
+    where: and(query.role ? eq(employees.role, query.role) : undefined, teamWhere),
     includeInactive: query.includeInactive,
     limit: query.limit,
     offset: query.offset,

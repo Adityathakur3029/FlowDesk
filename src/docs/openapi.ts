@@ -6,6 +6,7 @@ import "./health.docs";
 import "../modules/auth/auth.docs";
 import "../modules/employees/employee.docs";
 import "../modules/invites/invite.docs";
+import "../modules/teams/team.docs";
 import "../modules/programs/program.docs";
 import "../modules/tasks/task.docs";
 import "../modules/comments/comment.docs";
@@ -30,6 +31,7 @@ export function buildOpenApiDocument() {
       { name: "Auth", description: "Sign in with Google and get the current employee" },
       { name: "Employees", description: "Organisation employees" },
       { name: "Invites", description: "Invite new members by email and accept invites" },
+      { name: "Teams", description: "Teams of employees; every program has an owner team" },
       { name: "Programs", description: "Programs, the core entity that owns tasks and future research content" },
       { name: "Tasks", description: "Jira-style tasks within a program, including dependencies" },
       { name: "Comments", description: "Discussion threads on programs and tasks, with @mentions" },

@@ -12,6 +12,7 @@ export function toProgramDto(program: Program) {
     name: program.name,
     description: program.description,
     status: program.status,
+    ownerTeamId: program.ownerTeamId,
   };
 }
 

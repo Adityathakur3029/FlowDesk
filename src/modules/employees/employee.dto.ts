@@ -11,6 +11,7 @@ export function toEmployeeDto(employee: Employee) {
     emailId: employee.emailId,
     name: employee.name,
     role: employee.role,
+    teamId: employee.teamId,
   };
 }
 

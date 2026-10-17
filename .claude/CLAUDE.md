@@ -12,7 +12,7 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
 
 > Data layer: `src/db/index.ts` exposes `db = drizzle(pool)`. Tables live in `src/db/schema/` (exported from `schema/index.ts`) and spread `...baseColumns()` (`id`, `created_at`, `updated_at`, `is_active`). Services go through repositories built with `createRepository()` from `src/db/repository.ts`. See `.claude/specs/01-db-setup.md`.
 
-> Specs: each feature has a design spec in `.claude/specs/NN-<slug>.md`: 01 DB setup, 02 member invites, 03 Google login, 04 programs and tasks, 05 comments. Read the relevant spec before changing a feature, and update it when the behaviour changes.
+> Specs: each feature has a design spec in `.claude/specs/NN-<slug>.md`: 01 DB setup, 02 member invites, 03 Google login, 04 programs and tasks, 05 comments, 06 teams. Read the relevant spec before changing a feature, and update it when the behaviour changes.
 
 ## Commands
 
@@ -60,6 +60,15 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
 - Edit: author only. Delete (soft): author, MANAGER or ADMIN. A deleted top-level comment with active replies is listed as a tombstone.
 - Comments are discussion only. The API never writes them on its own (an activity log is a separate future feature).
 - See `.claude/specs/05-comments.md` for the full rules.
+
+### Team (`teams`, `src/modules/teams/`)
+- An organisation-level group of employees (no `programId`). Names are unique among active teams, ignoring case; a deleted team's name can be reused.
+- An employee is in **at most one** team (`employees.team_id`). `PUT /teams/:teamId/members/:employeeId` moves them out of any other team.
+- Every program has one **owner team** (`programs.owner_team_id`): required on create, changeable on PATCH, never cleared. It's NULL only on programs created before teams existed.
+- The owner team is data only for now. It doesn't restrict access.
+- Deleting a team (ADMIN) is refused with 409 `TEAM_OWNS_PROGRAMS` while it owns an active program. Otherwise its members are released.
+- Anything that attaches a program or member to a team locks the team row `FOR SHARE` (`teamRepository.lockForShare`) in its transaction, and team delete takes `lockForUpdate`.
+- See `.claude/specs/06-teams.md` for the full rules.
 
 ### Planned program scope (future)
 Each program will also hold several kinds of research-related content:

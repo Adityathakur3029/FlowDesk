@@ -28,6 +28,7 @@ export const exampleProgram = {
   name: "Marketing Research",
   description: "Q4 market research for the new product line",
   status: "ACTIVE",
+  ownerTeamId: "3f2c8b1e-6d4a-4b7e-9c21-5a8e7d0f1b23",
 };
 
 // Mirrors toProgramDto in program.dto.ts (task_counter is internal and not returned)
@@ -43,6 +44,10 @@ export const programSchema = registry.register(
       name: z.string(),
       description: z.string().nullable(),
       status: programStatusSchema,
+      ownerTeamId: z.uuid().nullable().meta({
+        description:
+          "Id of the team that owns the program. Always set on programs created through the API; null only on programs created before teams existed.",
+      }),
     })
     .meta({ example: exampleProgram }),
 );
@@ -71,6 +76,19 @@ const programIdInvalid = jsonResponse("`programId` is not a valid UUID", validat
   details: [{ path: "programId", message: "Invalid UUID" }],
 });
 
+const ownerTeamNotFound = { error: "Owner team not found", code: "OWNER_TEAM_NOT_FOUND" };
+
+// A 400 that can be a Zod validation error or a business error with a `code`
+const badRequest = (description: string, examples: Record<string, unknown>) => ({
+  description,
+  content: {
+    "application/json": {
+      schema: z.union([validationErrorResponseSchema, errorResponseSchema]),
+      examples: Object.fromEntries(Object.entries(examples).map(([name, value]) => [name, { value }])),
+    },
+  },
+});
+
 export const programNotFoundResponse = jsonResponse(
   "No active program with this id (soft-deleted programs are not found either)",
   errorResponseSchema,
@@ -85,6 +103,8 @@ registry.registerPath({
   description:
     "Creates a program. `key` is trimmed and uppercased; it becomes the prefix of every task key in the program (MKT -> MKT-1, MKT-2…), " +
     "can't be changed later, and stays taken after the program is soft-deleted.\n\n" +
+    "`ownerTeamId` is required: every program has exactly one owner team, which must be an active team (see `GET /teams`). " +
+    "The owner team is informational for now and doesn't restrict who can work on the program.\n\n" +
     "**Headers:** `Content-Type: application/json` is required for the body to be parsed.\n\n" +
     authNote("ADMIN", "MANAGER"),
   security: bearerSecurity,
@@ -94,20 +114,30 @@ registry.registerPath({
       content: {
         "application/json": {
           schema: createProgramSchema,
-          example: { key: "mkt", name: "Marketing Research", description: "Q4 market research for the new product line", status: "ACTIVE" },
+          example: {
+            key: "mkt",
+            name: "Marketing Research",
+            description: "Q4 market research for the new product line",
+            status: "ACTIVE",
+            ownerTeamId: "3f2c8b1e-6d4a-4b7e-9c21-5a8e7d0f1b23",
+          },
         },
       },
     },
   },
   responses: {
     201: jsonResponse("Program created", programEnvelopeSchema, { data: exampleProgram }),
-    400: jsonResponse(
-      "The body breaks a validation rule: `key` 2-10 letters or digits starting with a letter, `name` 1-150 characters, " +
-        "`description` at most 10,000 characters, `status` a ProgramStatus.",
-      validationErrorResponseSchema,
+    400: badRequest(
+      "The body breaks a validation rule (`ownerTeamId` a required UUID, `key` 2-10 letters or digits starting with a letter, " +
+        "`name` 1-150 characters, `description` at most 10,000 characters, `status` a ProgramStatus), " +
+        "or `OWNER_TEAM_NOT_FOUND`: `ownerTeamId` isn't an active team.",
       {
-        error: "Validation failed",
-        details: [{ path: "key", message: "Key must be 2-10 letters or digits, starting with a letter" }],
+        validation: {
+          error: "Validation failed",
+          details: [{ path: "key", message: "Key must be 2-10 letters or digits, starting with a letter" }],
+        },
+        missingOwnerTeam: { error: "Validation failed", details: [{ path: "ownerTeamId", message: "Invalid input: expected string, received undefined" }] },
+        ownerTeamNotFound,
       },
     ),
     401: unauthorizedResponse,
@@ -125,7 +155,7 @@ registry.registerPath({
   path: "/programs",
   tags: ["Programs"],
   summary: "List programs",
-  description: `Returns active programs newest first (\`createdAt\` descending), one page at a time.\n\n${authNote()}`,
+  description: `Returns active programs newest first (\`createdAt\` descending), one page at a time. Filter by \`status\`, \`ownerTeamId\` or \`q\`.\n\n${authNote()}`,
   security: bearerSecurity,
   request: { query: listProgramsQuerySchema },
   responses: {
@@ -134,7 +164,7 @@ registry.registerPath({
       meta: { total: 1, limit: 20, offset: 0 },
     }),
     400: jsonResponse(
-      "Invalid query parameter: unknown `status`, `q` outside 1-100 characters, `limit` outside 1-100, or a negative `offset`",
+      "Invalid query parameter: unknown `status`, `ownerTeamId` not a UUID, `q` outside 1-100 characters, `limit` outside 1-100, or a negative `offset`",
       validationErrorResponseSchema,
       { error: "Validation failed", details: [{ path: "limit", message: "Too big: expected number to be <=100" }] },
     ),
@@ -166,7 +196,8 @@ registry.registerPath({
   tags: ["Programs"],
   summary: "Update a program",
   description:
-    "Updates any of `name`, `description` (null clears it) and `status`. At least one field is required. " +
+    "Updates any of `name`, `description` (null clears it), `status` and `ownerTeamId` (moves ownership to another active team; it can't be null). " +
+    "At least one field is required. " +
     "`key` is immutable: sending it returns 400. Any status can move to any other.\n\n" +
     "**Headers:** `Content-Type: application/json` is required for the body to be parsed.\n\n" +
     authNote("ADMIN", "MANAGER"),
@@ -180,18 +211,16 @@ registry.registerPath({
   },
   responses: {
     200: jsonResponse("The updated program", programEnvelopeSchema, { data: { ...exampleProgram, status: "ON_HOLD" } }),
-    400: {
-      description: "Invalid `programId`, an empty body, a field breaking its rule, or an attempt to change `key`",
-      content: {
-        "application/json": {
-          schema: validationErrorResponseSchema,
-          examples: {
-            keyChange: { value: { error: "Validation failed", details: [{ path: "", message: "Program key cannot be changed" }] } },
-            empty: { value: { error: "Validation failed", details: [{ path: "", message: "At least one field is required" }] } },
-          },
-        },
+    400: badRequest(
+      "Invalid `programId`, an empty body, a field breaking its rule, an attempt to change `key` or clear `ownerTeamId`, " +
+        "or `OWNER_TEAM_NOT_FOUND`: `ownerTeamId` isn't an active team.",
+      {
+        keyChange: { error: "Validation failed", details: [{ path: "", message: "Program key cannot be changed" }] },
+        empty: { error: "Validation failed", details: [{ path: "", message: "At least one field is required" }] },
+        clearOwnerTeam: { error: "Validation failed", details: [{ path: "ownerTeamId", message: "A program must have an owner team" }] },
+        ownerTeamNotFound,
       },
-    },
+    ),
     401: unauthorizedResponse,
     403: forbiddenResponse,
     404: programNotFoundResponse,

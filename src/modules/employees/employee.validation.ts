@@ -32,6 +32,15 @@ export const createEmployeeSchema = z
 
 export const listEmployeesQuerySchema = z.object({
   role: roleSchema.optional().meta({ description: "Only return employees with this role" }),
+  teamId: z
+    .union([z.uuid(), z.literal("none")])
+    .optional()
+    .meta({
+      description:
+        "Only return members of this team (UUID), or `none` for employees not in any team. " +
+        "An unknown or deleted team simply matches nobody.",
+      example: "none",
+    }),
   includeInactive: z.stringbool().optional().meta({
     description: "Include deactivated employees. Case-insensitive; true values: true, 1, yes, on, y, enabled; false values: false, 0, no, off, n, disabled. Defaults to false.",
     example: "false",

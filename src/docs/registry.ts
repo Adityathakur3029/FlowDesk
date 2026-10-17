@@ -22,11 +22,12 @@ export const errorResponseSchema = registry.register(
           "EMAIL_DOMAIN_NOT_ALLOWED, NOT_INVITED, ACCOUNT_INACTIVE, GOOGLE_ACCOUNT_MISMATCH, GOOGLE_UNAVAILABLE, " +
           "PROGRAM_KEY_EXISTS, ASSIGNEE_NOT_FOUND, INVALID_DATE_RANGE, TASK_BLOCKED, TASK_DONE, DEPENDENCY_TASK_NOT_FOUND, " +
           "DEPENDENCY_OTHER_PROGRAM, SELF_DEPENDENCY, DEPENDENCY_EXISTS, DEPENDENCY_LIMIT_REACHED, DEPENDENCY_CYCLE, " +
-          "PARENT_COMMENT_NOT_FOUND, PARENT_TARGET_MISMATCH, NESTED_REPLY, TOO_MANY_MENTIONS, MENTION_NOT_FOUND",
+          "PARENT_COMMENT_NOT_FOUND, PARENT_TARGET_MISMATCH, NESTED_REPLY, TOO_MANY_MENTIONS, MENTION_NOT_FOUND, " +
+          "TEAM_NAME_EXISTS, TEAM_OWNS_PROGRAMS, OWNER_TEAM_NOT_FOUND",
         example: "INVITE_EXPIRED",
       }),
       details: z.unknown().optional().meta({
-        description: "Extra context on some errors, e.g. the open blockers on TASK_BLOCKED",
+        description: "Extra context on some errors, e.g. the open blockers on TASK_BLOCKED or the owned programs on TEAM_OWNS_PROGRAMS",
         example: { blockers: [{ id: "0e6c1f2a-4b8d-4c3e-9f7a-1d2b3c4d5e6f", key: "MKT-3", title: "Finalise sample", status: "IN_PROGRESS" }] },
       }),
     })

@@ -14,8 +14,14 @@ const descriptionSchema = z.string().max(10_000).nullable().meta({
   example: "Q4 market research for the new product line",
 });
 
+const ownerTeamIdSchema = z.uuid().meta({
+  description: "Id of the active team that owns the program. A program always has exactly one owner team.",
+  example: "3f2c8b1e-6d4a-4b7e-9c21-5a8e7d0f1b23",
+});
+
 export const createProgramSchema = z
   .object({
+    ownerTeamId: ownerTeamIdSchema,
     key: z
       .string()
       .trim()
@@ -39,6 +45,15 @@ export const updateProgramSchema = z
       name: z.string().trim().min(1).max(150).optional().meta({ description: "Trimmed; 1-150 characters", example: "Market Research" }),
       description: descriptionSchema.optional(),
       status: programStatusSchema.optional(),
+      ownerTeamId: z
+        .uuid({
+          error: (iss) => (iss.input === null ? "A program must have an owner team" : undefined),
+        })
+        .optional()
+        .meta({
+          description: "Move ownership to another active team. Can't be null: a program always has an owner team.",
+          example: "3f2c8b1e-6d4a-4b7e-9c21-5a8e7d0f1b23",
+        }),
     },
     {
       error: (iss) =>
@@ -53,6 +68,10 @@ export const updateProgramSchema = z
 
 export const listProgramsQuerySchema = z.object({
   status: programStatusSchema.optional().meta({ description: "Only return programs with this status" }),
+  ownerTeamId: z.uuid().optional().meta({
+    description: "Only return programs owned by this team",
+    example: "3f2c8b1e-6d4a-4b7e-9c21-5a8e7d0f1b23",
+  }),
   q: z.string().trim().min(1).max(100).optional().meta({
     description: "Case-insensitive substring match on name or key, 1-100 characters",
     example: "market",
