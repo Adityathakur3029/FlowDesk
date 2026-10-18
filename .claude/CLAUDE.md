@@ -12,7 +12,7 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
 
 > Data layer: `src/db/index.ts` exposes `db = drizzle(pool)`. Tables live in `src/db/schema/` (exported from `schema/index.ts`) and spread `...baseColumns()` (`id`, `created_at`, `updated_at`, `is_active`). Services go through repositories built with `createRepository()` from `src/db/repository.ts`. See `.claude/specs/01-db-setup.md`.
 
-> Specs: each feature has a design spec in `.claude/specs/NN-<slug>.md`: 01 DB setup, 02 member invites, 03 Google login, 04 programs and tasks, 05 comments, 06 teams, 07 task types. Read the relevant spec before changing a feature, and update it when the behaviour changes.
+> Specs: each feature has a design spec in `.claude/specs/NN-<slug>.md`: 01 DB setup, 02 member invites, 03 Google login, 04 programs and tasks, 05 comments, 06 teams, 07 task types, 08 employee search and update. Read the relevant spec before changing a feature, and update it when the behaviour changes.
 
 ## Commands
 

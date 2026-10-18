@@ -4,8 +4,16 @@ import { programs, type Program } from "../../db/schema";
 import { db, type DbExecutor } from "../../db";
 
 // Escapes LIKE wildcards so user input matches literally
+function likeEscape(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
 export function likeContains(value: string): string {
-  return `%${value.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  return `%${likeEscape(value)}%`;
+}
+
+export function likeStartsWith(value: string): string {
+  return `${likeEscape(value)}%`;
 }
 
 // Generic CRUD from createRepository plus program-specific lookups and locking

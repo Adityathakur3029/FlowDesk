@@ -7,6 +7,11 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../../db/repository";
 
 export const roleSchema = z.enum(employeeRole.enumValues).meta({ id: "EmployeeRole", example: "MANAGER" });
 
+const nameSchema = z.string().trim().min(1).max(150).meta({
+  description: "Full name; trimmed; 1-150 characters",
+  example: "Jane Doe",
+});
+
 export const createEmployeeSchema = z
   .object({
     email: z
@@ -22,15 +27,35 @@ export const createEmployeeSchema = z
         maxLength: 255,
         example: "jane.doe@saajha.org",
       }),
-    name: z.string().trim().min(1).max(150).meta({
-      description: "Full name; trimmed; 1-150 characters",
-      example: "Jane Doe",
-    }),
+    name: nameSchema,
     role: roleSchema,
   })
   .meta({ id: "CreateEmployeeRequest" });
 
+// email is bound to the Google account and teamId changes through the team member routes,
+// so neither is editable here (strict: they're rejected as unknown keys)
+export const updateEmployeeSchema = z
+  .strictObject({
+    name: nameSchema.optional(),
+    role: roleSchema.optional(),
+    isActive: z.boolean().optional().meta({
+      description: "false deactivates the employee, true reactivates them",
+      example: false,
+    }),
+  })
+  .refine((body) => Object.keys(body).length > 0, "At least one field is required")
+  .meta({
+    id: "UpdateEmployeeRequest",
+    description: "Send at least one field. Unknown fields are rejected, including `email` and `teamId`.",
+  });
+
 export const listEmployeesQuerySchema = z.object({
+  q: z.string().trim().min(1).max(100).optional().meta({
+    description:
+      "Search text, trimmed, 1-100 characters. Case-insensitive substring match on `name` or `emailId`; " +
+      "`%`, `_` and `\\` match literally. Changes the order (see the operation description).",
+    example: "jan",
+  }),
   role: roleSchema.optional().meta({ description: "Only return employees with this role" }),
   teamId: z
     .union([z.uuid(), z.literal("none")])
@@ -61,4 +86,5 @@ export const employeeIdParamSchema = z.object({
 });
 
 export type CreateEmployeeInput = z.infer<typeof createEmployeeSchema>;
+export type UpdateEmployeeInput = z.infer<typeof updateEmployeeSchema>;
 export type ListEmployeesQuery = z.infer<typeof listEmployeesQuerySchema>;
