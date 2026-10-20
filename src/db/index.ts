@@ -21,6 +21,11 @@ export function withTransaction<T>(fn: (tx: Transaction) => Promise<T>): Promise
   return db.transaction(fn);
 }
 
+// Read-only transaction on one snapshot, so several aggregate queries agree with each other
+export function withReadSnapshot<T>(fn: (tx: Transaction) => Promise<T>): Promise<T> {
+  return db.transaction(fn, { isolationLevel: "repeatable read", accessMode: "read only" });
+}
+
 // Fail fast at startup if the database is unreachable
 export async function connectDb(): Promise<void> {
   const client = await pool.connect();

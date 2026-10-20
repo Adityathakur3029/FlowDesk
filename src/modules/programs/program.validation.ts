@@ -19,6 +19,16 @@ const ownerTeamIdSchema = z.uuid().meta({
   example: "3f2c8b1e-6d4a-4b7e-9c21-5a8e7d0f1b23",
 });
 
+const startDateSchema = z.iso.date().nullable().meta({
+  description: "Planned start, YYYY-MM-DD, or null. Past dates are allowed.",
+  example: "2026-10-01",
+});
+
+const endDateSchema = z.iso.date().nullable().meta({
+  description: "Planned end, YYYY-MM-DD, or null. Must be on or after startDate. Past dates are allowed.",
+  example: "2026-12-31",
+});
+
 export const createProgramSchema = z
   .object({
     ownerTeamId: ownerTeamIdSchema,
@@ -36,6 +46,8 @@ export const createProgramSchema = z
     name: z.string().trim().min(1).max(150).meta({ description: "Trimmed; 1-150 characters", example: "Marketing Research" }),
     description: descriptionSchema.optional(),
     status: programStatusSchema.default("PLANNED").meta({ description: "Defaults to PLANNED" }),
+    startDate: startDateSchema.optional(),
+    endDate: endDateSchema.optional(),
   })
   .meta({ id: "CreateProgramRequest" });
 
@@ -45,6 +57,8 @@ export const updateProgramSchema = z
       name: z.string().trim().min(1).max(150).optional().meta({ description: "Trimmed; 1-150 characters", example: "Market Research" }),
       description: descriptionSchema.optional(),
       status: programStatusSchema.optional(),
+      startDate: startDateSchema.optional(),
+      endDate: endDateSchema.optional(),
       ownerTeamId: z
         .uuid({
           error: (iss) => (iss.input === null ? "A program must have an owner team" : undefined),

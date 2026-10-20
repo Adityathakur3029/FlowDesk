@@ -12,7 +12,7 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
 
 > Data layer: `src/db/index.ts` exposes `db = drizzle(pool)`. Tables live in `src/db/schema/` (exported from `schema/index.ts`) and spread `...baseColumns()` (`id`, `created_at`, `updated_at`, `is_active`). Services go through repositories built with `createRepository()` from `src/db/repository.ts`. See `.claude/specs/01-db-setup.md`.
 
-> Specs: each feature has a design spec in `.claude/specs/NN-<slug>.md`: 01 DB setup, 02 member invites, 03 Google login, 04 programs and tasks, 05 comments, 06 teams, 07 task types, 08 employee search and update. Read the relevant spec before changing a feature, and update it when the behaviour changes.
+> Specs: each feature has a design spec in `.claude/specs/NN-<slug>.md`: 01 DB setup, 02 member invites, 03 Google login, 04 programs and tasks, 05 comments, 06 teams, 07 task types, 08 employee search and update, 09 overview report. Read the relevant spec before changing a feature, and update it when the behaviour changes.
 
 ## Commands
 
@@ -22,6 +22,7 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
 | `npm run build` | Compile TypeScript to `dist/`      |
 | `npm start`     | Run the compiled server            |
 | `npm run typecheck` | Type-check without emitting |
+| `npm test` | Run `src/**/*.test.ts` (`node:test` via tsx). DB tests use `DATABASE_URL` and roll everything back |
 | `npm run db:generate -- --name <change>` | Generate a SQL migration from schema changes |
 | `npm run db:migrate` | Apply pending migrations (`db:migrate:prod` runs from `dist/`) |
 | `npm run db:check` | Check the migration history is consistent |
@@ -36,6 +37,8 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
 ### Program (`programs`, `src/modules/programs/`)
 - Has a short uppercase **key** (`MKT`), which prefixes its task keys. The key can't be changed, and it stays taken after the program is soft-deleted.
 - Has a **status** (`PLANNED`, `ACTIVE`, `ON_HOLD`, `COMPLETED`, `CANCELLED`), with no transition rules yet.
+  - `completed_at` / `cancelled_at` follow it: set on entering `COMPLETED` / `CANCELLED`, cleared on leaving (DB checks enforce it). Their coalesce is the program's finish time.
+- Has an optional planned **start date** and **end date** (`end_date >= start_date`, checked on the merged values on PATCH, 400 `INVALID_DATE_RANGE`). They don't constrain task dates.
 - Owns many **tasks**.
 - Will later own other kinds of work (see below).
 - Soft-deleting a program makes every route under it return 404.
@@ -70,6 +73,12 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
 - Deleting a team (ADMIN) is refused with 409 `TEAM_OWNS_PROGRAMS` while it owns an active program. Otherwise its members are released.
 - Anything that attaches a program or member to a team locks the team row `FOR SHARE` (`teamRepository.lockForShare`) in its transaction, and team delete takes `lockForUpdate`.
 - See `.claude/specs/06-teams.md` for the full rules.
+
+### Reports (`src/modules/reports/`)
+- `GET /reports/overview?from&to`: organisation-wide totals, deltas, breakdowns, trend, team and program rows for a UTC date range. Any active employee.
+- Read-only: aggregated in SQL (`report.repository.ts`) inside `withReadSnapshot()`. No tables of its own.
+- Event counts cover every live task; snapshot counts cover in-scope programs only. Statuses are current (no history).
+- See `.claude/specs/09-overview-report.md` for the definitions.
 
 ### Planned program scope (future)
 Each program will also hold several kinds of research-related content:

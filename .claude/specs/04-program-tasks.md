@@ -103,7 +103,13 @@ Mount order in `routeModules`: put `/programs/:programId/tasks` before `/program
 | `name` | `varchar(150)` | not null |
 | `description` | `text` | nullable |
 | `status` | `program_status` | not null, default `PLANNED` |
+| `start_date` | `date` (mode `string`) | nullable, `YYYY-MM-DD`. Planned start |
+| `end_date` | `date` (mode `string`) | nullable, `YYYY-MM-DD`. Planned end |
+| `completed_at` | `timestamptz` | nullable. Set while `status = 'COMPLETED'` (spec 09) |
+| `cancelled_at` | `timestamptz` | nullable. Set while `status = 'CANCELLED'` (spec 09) |
 | `task_counter` | `integer` | not null, default `0`. The last task number handed out. Internal, never returned. |
+
+- `CHECK (end_date IS NULL OR start_date IS NULL OR end_date >= start_date)` (`programs_date_range_check`, migration `0008_add_program_dates`). This backs up the service rule. Program dates don't constrain task dates.
 
 `program_status` enum: `PLANNED`, `ACTIVE`, `ON_HOLD`, `COMPLETED`, `CANCELLED`. There are no transition rules yet: any status can move to any other.
 
@@ -294,8 +300,9 @@ Validation (`createProgramSchema`):
 - `name`: required, trimmed, 1 to 150 characters.
 - `description`: optional, up to 10,000 characters, or `null`.
 - `status`: optional, `program_status`, default `PLANNED`.
+- `startDate` / `endDate`: optional, `YYYY-MM-DD` (`z.iso.date()`) or `null`. `endDate >= startDate` when both are set, otherwise 400 `INVALID_DATE_RANGE` ("endDate must be on or after startDate"). Past dates are allowed.
 
-Responses: `201 { data: Program }`. `400` validation. `403 FORBIDDEN`. `409 PROGRAM_KEY_EXISTS` ("Program key MKT is already taken"), including keys of soft-deleted programs. A unique-violation race maps to the same code.
+Responses: `201 { data: Program }`. `400` validation / `INVALID_DATE_RANGE`. `403 FORBIDDEN`. `409 PROGRAM_KEY_EXISTS` ("Program key MKT is already taken"), including keys of soft-deleted programs. A unique-violation race maps to the same code.
 
 #### `GET /programs` — list programs
 **Roles:** any.
@@ -315,9 +322,11 @@ Results are sorted by `createdAt desc`. Responses: `200 { data: Program[], meta:
 #### `PATCH /programs/:programId` — update a program
 **Roles:** `ADMIN`, `MANAGER`.
 
-Body (`updateProgramSchema`): any of `name`, `description` (nullable), `status`. At least one field is required, otherwise 400 `Validation failed`. `key` isn't accepted. The schema is `.strict()`, so sending `key` returns 400 with the message "Program key cannot be changed".
+Body (`updateProgramSchema`): any of `name`, `description` (nullable), `status`, `startDate` and `endDate` (nullable). At least one field is required, otherwise 400 `Validation failed`. `key` isn't accepted. The schema is `.strict()`, so sending `key` returns 400 with the message "Program key cannot be changed".
 
-Responses: `200 { data: Program }`. `400`. `403 FORBIDDEN`. `404`.
+The date range is checked on the **merged** values (for example, sending only an `endDate` before the stored `startDate` → 400 `INVALID_DATE_RANGE`). The update locks the program row (`lockForUpdate`) first, so two concurrent single-date edits can't each pass the check and then trip the DB constraint together.
+
+Responses: `200 { data: Program }`. `400` validation / `INVALID_DATE_RANGE`. `403 FORBIDDEN`. `404`.
 
 #### `DELETE /programs/:programId` — soft-delete a program
 **Roles:** `ADMIN`.
@@ -476,6 +485,7 @@ Add the 11 new codes to the `ErrorResponse.code` description in `src/docs/regist
 - [x] Responses never include `taskCounter` or `statusBeforeDependent`
 - [ ] Every route returns 401 without a token *(exercised on `GET /programs/:programId` only; every route has `requireAuth` in its router)*
 - [x] `npm run typecheck`, `npm run build`, `npm run docs:validate` pass
+- [x] Program dates: `startDate`/`endDate` returned on every Program (null when unset). Create with `endDate` before `startDate` → 400 `INVALID_DATE_RANGE`; PATCH of a single date that breaks the stored range → 400 `INVALID_DATE_RANGE`; a malformed date → 400 `Invalid ISO date`; `null` clears either *(checked at the service/validation layer)*
 
 ## Testing notes
 

@@ -10,6 +10,7 @@ import "../modules/teams/team.docs";
 import "../modules/programs/program.docs";
 import "../modules/tasks/task.docs";
 import "../modules/comments/comment.docs";
+import "../modules/reports/report.docs";
 
 export function buildOpenApiDocument() {
   const generator = new OpenApiGeneratorV3(registry.definitions);
@@ -35,6 +36,7 @@ export function buildOpenApiDocument() {
       { name: "Programs", description: "Programs, the core entity that owns tasks and future research content" },
       { name: "Tasks", description: "Jira-style tasks within a program, including dependencies" },
       { name: "Comments", description: "Discussion threads on programs and tasks, with @mentions" },
+      { name: "Reports", description: "Organisation-wide reports computed from programs and tasks" },
     ],
   });
 }

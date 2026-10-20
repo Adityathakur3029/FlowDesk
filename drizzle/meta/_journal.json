@@ -57,6 +57,20 @@
       "when": 1792240990166,
       "tag": "0007_add_task_type",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792420489464,
+      "tag": "0008_add_program_dates",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792484570199,
+      "tag": "0009_add_program_completion_and_report_indexes",
+      "breakpoints": true
     }
   ]
 }

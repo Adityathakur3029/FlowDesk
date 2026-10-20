@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { withTransaction, type DbExecutor } from "../../db";
-import { programs, type Program } from "../../db/schema";
+import { programs, type Program, type ProgramStatus } from "../../db/schema";
 import type { Page } from "../../db/repository";
 import { BadRequestError, ConflictError, getPgErrorCode, NotFoundError, PG_UNIQUE_VIOLATION } from "../../lib/errors";
 import { teamRepository } from "../teams/team.repository";
@@ -16,7 +16,24 @@ async function lockOwnerTeam(tx: DbExecutor, teamId: string): Promise<void> {
   if (!team) throw new BadRequestError("Owner team not found", "OWNER_TEAM_NOT_FOUND");
 }
 
+function assertDateRange(startDate: string | null | undefined, endDate: string | null | undefined): void {
+  // YYYY-MM-DD strings compare correctly as text
+  if (startDate && endDate && endDate < startDate) {
+    throw new BadRequestError("endDate must be on or after startDate", "INVALID_DATE_RANGE");
+  }
+}
+
+// completed_at / cancelled_at follow the status: set on entering COMPLETED / CANCELLED,
+// cleared on leaving it. A DB check enforces it. See .claude/specs/09-overview-report.md
+function finishTimes(status: ProgramStatus, now = new Date()): Pick<Program, "completedAt" | "cancelledAt"> {
+  return {
+    completedAt: status === "COMPLETED" ? now : null,
+    cancelledAt: status === "CANCELLED" ? now : null,
+  };
+}
+
 export async function createProgram(input: CreateProgramInput): Promise<Program> {
+  assertDateRange(input.startDate, input.endDate);
   try {
     return await withTransaction(async (tx) => {
       await lockOwnerTeam(tx, input.ownerTeamId);
@@ -31,6 +48,9 @@ export async function createProgram(input: CreateProgramInput): Promise<Program>
         name: input.name,
         description: input.description ?? null,
         status: input.status,
+        ...finishTimes(input.status),
+        startDate: input.startDate ?? null,
+        endDate: input.endDate ?? null,
         ownerTeamId: input.ownerTeamId,
       });
     });
@@ -63,10 +83,19 @@ export function listPrograms(query: ListProgramsQuery): Promise<Page<Program>> {
 export function updateProgram(id: string, input: UpdateProgramInput): Promise<Program> {
   return withTransaction(async (tx) => {
     const repo = programRepository.withTx(tx);
-    if (!(await repo.findById(id))) throw new NotFoundError("Program not found");
+    // Locked so two concurrent date edits can't each pass the merged check
+    const program = await repo.lockForUpdate(id);
+    if (!program) throw new NotFoundError("Program not found");
+    // Check the merged values, so changing one date can't break the range
+    assertDateRange(
+      input.startDate !== undefined ? input.startDate : program.startDate,
+      input.endDate !== undefined ? input.endDate : program.endDate,
+    );
     if (input.ownerTeamId) await lockOwnerTeam(tx, input.ownerTeamId);
 
-    const updated = await repo.updateById(id, input);
+    // Sending the current status again keeps the existing timestamp
+    const statusChange = input.status && input.status !== program.status ? finishTimes(input.status) : {};
+    const updated = await repo.updateById(id, { ...input, ...statusChange });
     if (!updated) throw new NotFoundError("Program not found");
     return updated;
   });

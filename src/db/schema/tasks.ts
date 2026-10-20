@@ -66,6 +66,9 @@ export const tasks = pgTable(
     index("tasks_program_type_idx").on(t.programId, t.type),
     index("tasks_assignee_id_idx").on(t.assigneeId),
     index("tasks_due_date_idx").on(t.dueDate),
+    // Org-wide date-range counts in the overview report (spec 09)
+    index("tasks_created_at_idx").on(t.createdAt),
+    index("tasks_completed_at_idx").on(t.completedAt),
     index("tasks_labels_idx").using("gin", t.labels),
   ],
 );

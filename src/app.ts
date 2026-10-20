@@ -11,6 +11,7 @@ import { teamRouter } from "./modules/teams/team.routes";
 import { programRouter } from "./modules/programs/program.routes";
 import { taskRouter } from "./modules/tasks/task.routes";
 import { programCommentRouter, taskCommentRouter } from "./modules/comments/comment.routes";
+import { reportRouter } from "./modules/reports/report.routes";
 import { errorHandler } from "./middleware/errorHandler";
 
 // Feature routers and their mount paths. Mount routers here (not with ad-hoc app.use)
@@ -25,6 +26,7 @@ export const routeModules: ReadonlyArray<{ basePath: string; router: Router }> =
   { basePath: "/programs/:programId/comments", router: programCommentRouter },
   { basePath: "/programs/:programId/tasks", router: taskRouter },
   { basePath: "/programs", router: programRouter },
+  { basePath: "/reports", router: reportRouter },
 ];
 
 export const app = express();

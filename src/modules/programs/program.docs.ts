@@ -28,8 +28,16 @@ export const exampleProgram = {
   name: "Marketing Research",
   description: "Q4 market research for the new product line",
   status: "ACTIVE",
+  startDate: "2026-10-01",
+  endDate: "2026-12-31",
+  completedAt: null,
+  cancelledAt: null,
   ownerTeamId: "3f2c8b1e-6d4a-4b7e-9c21-5a8e7d0f1b23",
 };
+
+const statusTimesNote =
+  "`completedAt` / `cancelledAt` follow `status`: entering `COMPLETED` or `CANCELLED` sets the matching one to now, " +
+  "leaving it clears it, and sending the current status again keeps the existing time. They can't be sent.";
 
 // Mirrors toProgramDto in program.dto.ts (task_counter is internal and not returned)
 export const programSchema = registry.register(
@@ -44,6 +52,16 @@ export const programSchema = registry.register(
       name: z.string(),
       description: z.string().nullable(),
       status: programStatusSchema,
+      startDate: z.iso.date().nullable().meta({ description: "Planned start (YYYY-MM-DD); null when not set" }),
+      endDate: z.iso.date().nullable().meta({
+        description: "Planned end (YYYY-MM-DD), on or after startDate; null when not set",
+      }),
+      completedAt: z.iso.datetime().nullable().meta({
+        description: "When the program last became COMPLETED; null unless status is COMPLETED. Set by the server from `status`.",
+      }),
+      cancelledAt: z.iso.datetime().nullable().meta({
+        description: "When the program last became CANCELLED; null unless status is CANCELLED. Set by the server from `status`.",
+      }),
       ownerTeamId: z.uuid().nullable().meta({
         description:
           "Id of the team that owns the program. Always set on programs created through the API; null only on programs created before teams existed.",
@@ -77,6 +95,7 @@ const programIdInvalid = jsonResponse("`programId` is not a valid UUID", validat
 });
 
 const ownerTeamNotFound = { error: "Owner team not found", code: "OWNER_TEAM_NOT_FOUND" };
+const invalidDateRange = { error: "endDate must be on or after startDate", code: "INVALID_DATE_RANGE" };
 
 // A 400 that can be a Zod validation error or a business error with a `code`
 const badRequest = (description: string, examples: Record<string, unknown>) => ({
@@ -105,6 +124,9 @@ registry.registerPath({
     "can't be changed later, and stays taken after the program is soft-deleted.\n\n" +
     "`ownerTeamId` is required: every program has exactly one owner team, which must be an active team (see `GET /teams`). " +
     "The owner team is informational for now and doesn't restrict who can work on the program.\n\n" +
+    "`startDate` and `endDate` are optional `YYYY-MM-DD` dates (omit or send null to leave them unset). " +
+    "`endDate` must be on or after `startDate` when both are set (400 `INVALID_DATE_RANGE`); past dates are allowed.\n\n" +
+    `${statusTimesNote}\n\n` +
     "**Headers:** `Content-Type: application/json` is required for the body to be parsed.\n\n" +
     authNote("ADMIN", "MANAGER"),
   security: bearerSecurity,
@@ -119,6 +141,8 @@ registry.registerPath({
             name: "Marketing Research",
             description: "Q4 market research for the new product line",
             status: "ACTIVE",
+            startDate: "2026-10-01",
+            endDate: "2026-12-31",
             ownerTeamId: "3f2c8b1e-6d4a-4b7e-9c21-5a8e7d0f1b23",
           },
         },
@@ -129,9 +153,13 @@ registry.registerPath({
     201: jsonResponse("Program created", programEnvelopeSchema, { data: exampleProgram }),
     400: badRequest(
       "The body breaks a validation rule (`ownerTeamId` a required UUID, `key` 2-10 letters or digits starting with a letter, " +
-        "`name` 1-150 characters, `description` at most 10,000 characters, `status` a ProgramStatus), " +
+        "`name` 1-150 characters, `description` at most 10,000 characters, `status` a ProgramStatus, " +
+        "`startDate`/`endDate` YYYY-MM-DD or null), " +
+        "`INVALID_DATE_RANGE`: `endDate` is before `startDate`, " +
         "or `OWNER_TEAM_NOT_FOUND`: `ownerTeamId` isn't an active team.",
       {
+        badDate: { error: "Validation failed", details: [{ path: "startDate", message: "Invalid ISO date" }] },
+        invalidDateRange,
         validation: {
           error: "Validation failed",
           details: [{ path: "key", message: "Key must be 2-10 letters or digits, starting with a letter" }],
@@ -196,9 +224,13 @@ registry.registerPath({
   tags: ["Programs"],
   summary: "Update a program",
   description:
-    "Updates any of `name`, `description` (null clears it), `status` and `ownerTeamId` (moves ownership to another active team; it can't be null). " +
+    "Updates any of `name`, `description` (null clears it), `status`, `startDate` and `endDate` (null clears either), " +
+    "and `ownerTeamId` (moves ownership to another active team; it can't be null). " +
     "At least one field is required. " +
+    "The date range is checked on the **merged** values: for example, sending only an `endDate` before the program's existing `startDate` " +
+    "returns 400 `INVALID_DATE_RANGE`. " +
     "`key` is immutable: sending it returns 400. Any status can move to any other.\n\n" +
+    `${statusTimesNote}\n\n` +
     "**Headers:** `Content-Type: application/json` is required for the body to be parsed.\n\n" +
     authNote("ADMIN", "MANAGER"),
   security: bearerSecurity,
@@ -206,15 +238,24 @@ registry.registerPath({
     params: programIdParamSchema,
     body: {
       required: true,
-      content: { "application/json": { schema: updateProgramSchema, example: { status: "ON_HOLD" } } },
+      content: {
+        "application/json": {
+          schema: updateProgramSchema,
+          example: { status: "ON_HOLD", endDate: "2027-01-31" },
+        },
+      },
     },
   },
   responses: {
-    200: jsonResponse("The updated program", programEnvelopeSchema, { data: { ...exampleProgram, status: "ON_HOLD" } }),
+    200: jsonResponse("The updated program", programEnvelopeSchema, {
+      data: { ...exampleProgram, status: "ON_HOLD", endDate: "2027-01-31" },
+    }),
     400: badRequest(
       "Invalid `programId`, an empty body, a field breaking its rule, an attempt to change `key` or clear `ownerTeamId`, " +
+        "`INVALID_DATE_RANGE`: the merged `endDate` is before the merged `startDate`, " +
         "or `OWNER_TEAM_NOT_FOUND`: `ownerTeamId` isn't an active team.",
       {
+        invalidDateRange,
         keyChange: { error: "Validation failed", details: [{ path: "", message: "Program key cannot be changed" }] },
         empty: { error: "Validation failed", details: [{ path: "", message: "At least one field is required" }] },
         clearOwnerTeam: { error: "Validation failed", details: [{ path: "ownerTeamId", message: "A program must have an owner team" }] },

@@ -12,6 +12,10 @@ export function toProgramDto(program: Program) {
     name: program.name,
     description: program.description,
     status: program.status,
+    startDate: program.startDate,
+    endDate: program.endDate,
+    completedAt: program.completedAt,
+    cancelledAt: program.cancelledAt,
     ownerTeamId: program.ownerTeamId,
   };
 }
