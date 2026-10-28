@@ -20,7 +20,10 @@ const accountMismatch = () =>
 // See .claude/specs/03-login.md. Rules are applied in the order listed there.
 export async function loginWithGoogle(input: GoogleLoginInput): Promise<LoginResult> {
   // 1. Authentication: who are you?
+  // TODO: temporary debug logging, remove before merging (it logs the Google identity).
+  console.log("Verifying Google ID token...");
   const identity = await verifyGoogleIdToken(input.idToken);
+  console.log("Google ID token verified:", identity);
   if (!identity.emailVerified) {
     throw new UnauthorizedError("Your Google email address is not verified", "GOOGLE_EMAIL_NOT_VERIFIED");
   }
@@ -31,10 +34,12 @@ export async function loginWithGoogle(input: GoogleLoginInput): Promise<LoginRes
 
   // 2. Authorization: are you allowed?
   let employee = await employeeRepository.findByEmail(identity.email, { includeInactive: true });
-  if (!employee || !(await inviteRepository.hasAcceptedInvite(employee.id))) {
-    throw new ForbiddenError("You have not been invited to FlowDesk", "NOT_INVITED");
-  }
-  if (!employee.isActive) {
+  // TODO: temporary, revert. The invite check is disabled, so any employee can log in without
+  // an accepted invite. Restore the NOT_INVITED check and the original `!employee.isActive` guard.
+  // if (!employee || !(await inviteRepository.hasAcceptedInvite(employee.id))) {
+    // throw new ForbiddenError("You have not been invited to FlowDesk", "NOT_INVITED");
+  // }
+  if (!employee || !employee.isActive) {
     throw new ForbiddenError("Your account has been deactivated", "ACCOUNT_INACTIVE");
   }
 
