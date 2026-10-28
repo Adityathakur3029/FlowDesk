@@ -9,8 +9,9 @@ import { employeeRouter } from "./modules/employees/employee.routes";
 import { inviteRouter } from "./modules/invites/invite.routes";
 import { teamRouter } from "./modules/teams/team.routes";
 import { programRouter } from "./modules/programs/program.routes";
-import { taskRouter } from "./modules/tasks/task.routes";
-import { programCommentRouter, taskCommentRouter } from "./modules/comments/comment.routes";
+import { boardRouter } from "./modules/boards/board.routes";
+import { boardTaskRouter, taskByRefRouter, taskRouter } from "./modules/tasks/task.routes";
+import { programCommentRouter, taskCommentRouter, taskRefCommentRouter } from "./modules/comments/comment.routes";
 import { reportRouter } from "./modules/reports/report.routes";
 import { errorHandler } from "./middleware/errorHandler";
 
@@ -26,6 +27,11 @@ export const routeModules: ReadonlyArray<{ basePath: string; router: Router }> =
   { basePath: "/programs/:programId/comments", router: programCommentRouter },
   { basePath: "/programs/:programId/tasks", router: taskRouter },
   { basePath: "/programs", router: programRouter },
+  { basePath: "/boards/:boardId/tasks", router: boardTaskRouter },
+  { basePath: "/boards", router: boardRouter },
+  // Any task by UUID or key, whatever its parent
+  { basePath: "/tasks/:taskRef/comments", router: taskRefCommentRouter },
+  { basePath: "/tasks", router: taskByRefRouter },
   { basePath: "/reports", router: reportRouter },
 ];
 

@@ -29,20 +29,22 @@ const endDateSchema = z.iso.date().nullable().meta({
   example: "2026-12-31",
 });
 
+// Key rule shared by programs and boards, whose keys prefix their task keys
+export const containerKeySchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z][A-Z0-9]{1,9}$/, "Key must be 2-10 letters or digits, starting with a letter");
+
 export const createProgramSchema = z
   .object({
     ownerTeamId: ownerTeamIdSchema,
-    key: z
-      .string()
-      .trim()
-      .toUpperCase()
-      .regex(/^[A-Z][A-Z0-9]{1,9}$/, "Key must be 2-10 letters or digits, starting with a letter")
-      .meta({
-        description:
-          "Short prefix of the program's task keys (MKT -> MKT-42). Trimmed and uppercased, then 2-10 letters or digits starting with a letter. " +
-          "Unique, including soft-deleted programs, and cannot be changed later.",
-        example: "MKT",
-      }),
+    key: containerKeySchema.meta({
+      description:
+        "Short prefix of the program's task keys (MKT -> MKT-42). Trimmed and uppercased, then 2-10 letters or digits starting with a letter. " +
+        "Unique among programs, including soft-deleted ones, and cannot be changed later. A board may use the same key.",
+      example: "MKT",
+    }),
     name: z.string().trim().min(1).max(150).meta({ description: "Trimmed; 1-150 characters", example: "Marketing Research" }),
     description: descriptionSchema.optional(),
     status: programStatusSchema.default("PLANNED").meta({ description: "Defaults to PLANNED" }),

@@ -12,17 +12,19 @@ import {
 } from "../../docs/registry";
 import { programIdParamSchema } from "../programs/program.validation";
 import { programNotFoundResponse } from "../programs/program.docs";
-import { taskRefParamSchema } from "../tasks/task.validation";
+import { taskRefOnlyParamSchema, taskRefParamSchema } from "../tasks/task.validation";
 import { MAX_MENTIONS } from "./comment.mentions";
 import {
   commentIdParamSchema,
   createCommentSchema,
   listCommentsQuerySchema,
+  taskCommentIdParamSchema,
   updateCommentSchema,
 } from "./comment.validation";
 
 const ids = {
   program: "5b1f6a3e-8c1d-4f8e-9a51-2a7c3d9e0b14",
+  board: "8c7d6e5f-4a3b-4c2d-9e1f-0a9b8c7d6e5f",
   task: "7d2e9b40-1c3a-4e5f-8a6b-9c0d1e2f3a4b",
   comment: "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d",
   reply: "9f8e7d6c-5b4a-4c3d-8e2f-1a0b9c8d7e6f",
@@ -38,6 +40,7 @@ const exampleReply = {
   updatedAt: "2026-10-17T11:05:00.000Z",
   isActive: true,
   programId: ids.program,
+  boardId: null,
   taskId: ids.task,
   parentId: ids.comment,
   author: jane,
@@ -52,6 +55,7 @@ const exampleComment = {
   updatedAt: "2026-10-17T10:30:00.000Z",
   isActive: true,
   programId: ids.program,
+  boardId: null,
   taskId: ids.task,
   parentId: null,
   author: ravi,
@@ -77,14 +81,28 @@ const exampleProgramComment = {
   replies: [],
 };
 
+// On a board task (PRO-50)
+const exampleBoardTaskComment = {
+  ...exampleComment,
+  programId: null,
+  boardId: ids.board,
+  body: `Reproduced with a 40 MB report, @[Jane Doe](mention:${ids.jane}) can you take it?`,
+  replies: [{ ...exampleReply, programId: null, boardId: ids.board }],
+};
+
 // Mirrors toCommentReplyDto / toCommentDto in comment.dto.ts
 const commentShape = {
   id: z.uuid(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   isActive: z.boolean().meta({ description: "false only on a tombstone (a deleted top-level comment that still has active replies)" }),
-  programId: z.uuid(),
-  taskId: z.uuid().nullable().meta({ description: "The task the comment is on; null for a program-level comment" }),
+  programId: z.uuid().nullable().meta({
+    description: "The program the comment (or its task) belongs to; null for a comment on a board task. Exactly one of programId/boardId is set.",
+  }),
+  boardId: z.uuid().nullable().meta({ description: "The board of the task the comment is on; null unless it's on a board task" }),
+  taskId: z.uuid().nullable().meta({
+    description: "The task the comment is on; null for a program-level comment (boards have no board-level comments)",
+  }),
   parentId: z.uuid().nullable().meta({ description: "The top-level comment this replies to; null for a top-level comment" }),
   author: employeeSummarySchema.nullable().meta({
     description: "The employee who wrote it (still shown if since deactivated); null on a tombstone",
@@ -116,7 +134,8 @@ export const commentSchema = registry.register(
     })
     .meta({
       description:
-        "A comment on a program (`taskId: null`) or on a task. `replies` appears only on top-level comments. " +
+        "A comment on a program (`taskId: null`), on a program task, or on a board task (`boardId` set). " +
+        "`replies` appears only on top-level comments. " +
         "A deleted top-level comment that still has active replies is returned as a **tombstone**: `isActive: false`, `body: null`, " +
         "`author: null`, `editedAt: null` and `mentions: []`, with `id`, `createdAt`, `parentId` and `replies` still filled in. " +
         "`mentions` shows each person's current name.",
@@ -161,6 +180,29 @@ const commentNotFound = examplesResponse(
   { program: { error: "Program not found" }, comment: { error: "Comment not found" } },
 );
 
+const reachableTaskNotFound = examplesResponse(
+  "No such task: unknown, soft-deleted, or in a soft-deleted program (a soft-deleted board's tasks are still found)",
+  errorResponseSchema,
+  { task: { error: "Task not found" } },
+);
+
+const taskCommentNotFound = examplesResponse(
+  "The task isn't found (as above), or the comment is missing, deleted (including tombstones), or not on this task",
+  errorResponseSchema,
+  { task: { error: "Task not found" }, comment: { error: "Comment not found" } },
+);
+
+const BY_TASK_REF =
+  "`taskRef` is the task UUID or its key (case-insensitive, e.g. `pro-50`). Works for every task, in a program or on a board; " +
+  "a task in a soft-deleted program is 404, a task on a soft-deleted board still works.";
+
+const taskRefInvalid = (alsoComment: boolean) =>
+  jsonResponse(
+    alsoComment ? "`taskRef` is neither a UUID nor a task key, or `commentId` is not a valid UUID" : "Invalid `taskRef`, `order`, `limit` or `offset`",
+    validationErrorResponseSchema,
+    { error: "Validation failed", details: [{ path: "taskRef", message: "Must be a task UUID or a task key like MKT-7" }] },
+  );
+
 const forbidden = (description: string) =>
   jsonResponse(description, errorResponseSchema, {
     error: "You do not have permission to perform this action",
@@ -185,7 +227,7 @@ const bodyValidation = {
 
 const CREATE_RULES =
   "Rules, in order: the target must be active (404); if `parentId` is sent, the parent must be an active comment in this program " +
-  "(400 `PARENT_COMMENT_NOT_FOUND`) on the same task or program (400 `PARENT_TARGET_MISMATCH`) and itself top-level " +
+  "or board (400 `PARENT_COMMENT_NOT_FOUND`) on the same task or program (400 `PARENT_TARGET_MISMATCH`) and itself top-level " +
   `(400 \`NESTED_REPLY\`); the body may mention at most ${MAX_MENTIONS} distinct people (400 \`TOO_MANY_MENTIONS\`), each an active ` +
   "employee (400 `MENTION_NOT_FOUND`). The comment and its mentions are saved in one transaction. Self-mentions are allowed.";
 
@@ -321,7 +363,8 @@ registry.registerPath({
   tags: ["Comments"],
   summary: "Get a comment",
   description:
-    "Returns one program or task comment; a top-level comment comes with its active replies. This is the target for deep links.\n\n" +
+    "Returns one program comment or a comment on one of the program's tasks; a top-level comment comes with its active replies. " +
+    "This is the target for deep links. Comments on **board** tasks are served by `/tasks/{taskRef}/comments/{commentId}`.\n\n" +
     ANY_ROLE,
   security: bearerSecurity,
   request: { params: commentIdParamSchema },
@@ -405,6 +448,143 @@ registry.registerPath({
     401: unauthorizedResponse,
     403: forbidden("`FORBIDDEN`: the caller is a MEMBER who isn't the comment's author"),
     404: commentNotFound,
+    500: internalServerErrorResponse,
+  },
+});
+
+// ---- Task comments by taskRef alone (any task, in a program or on a board) ----
+
+registry.registerPath({
+  method: "get",
+  path: "/tasks/{taskRef}/comments",
+  tags: ["Comments"],
+  summary: "List a task's comments (any task)",
+  description: `${LIST_RULES} ${BY_TASK_REF}\n\n${ANY_ROLE}`,
+  security: bearerSecurity,
+  request: { params: taskRefOnlyParamSchema, query: listCommentsQuerySchema },
+  responses: {
+    200: examplesResponse("A page of threads", commentListSchema, {
+      thread: { data: [exampleBoardTaskComment], meta: listMeta },
+      tombstone: { data: [{ ...exampleTombstone, programId: null, boardId: ids.board }], meta: listMeta },
+    }),
+    400: taskRefInvalid(false),
+    401: unauthorizedResponse,
+    404: reachableTaskNotFound,
+    500: internalServerErrorResponse,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/tasks/{taskRef}/comments",
+  tags: ["Comments"],
+  summary: "Comment on a task (any task), or reply",
+  description:
+    "Adds a comment to the task, or a reply to one of its comments when `parentId` is set. The signed-in employee is the author. " +
+    `${BY_TASK_REF} Comments are allowed on tasks in any status, including DONE.\n\n` +
+    `${CREATE_RULES}\n\n${BODY_HEADER}\n\n${ANY_ROLE}`,
+  security: bearerSecurity,
+  request: {
+    params: taskRefOnlyParamSchema,
+    body: createBody({ body: exampleBoardTaskComment.body }),
+  },
+  responses: {
+    201: jsonResponse("Comment created; a top-level comment comes back with `replies: []`", commentEnvelope, {
+      data: { ...exampleBoardTaskComment, replies: [] },
+    }),
+    400: validation400("Invalid params or body, or a reply/mention rule failed (`code`)", {
+      validation: bodyValidation,
+      ...replyErrors,
+      ...mentionErrors,
+    }),
+    401: unauthorizedResponse,
+    404: reachableTaskNotFound,
+    500: internalServerErrorResponse,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/tasks/{taskRef}/comments/{commentId}",
+  tags: ["Comments"],
+  summary: "Get a task comment",
+  description:
+    "Returns one comment on this task; a top-level comment comes with its active replies. The comment must be on this task: " +
+    `an id from another task is 404. ${BY_TASK_REF}\n\n${ANY_ROLE}`,
+  security: bearerSecurity,
+  request: { params: taskCommentIdParamSchema },
+  responses: {
+    200: jsonResponse("The comment", commentEnvelope, { data: exampleBoardTaskComment }),
+    400: taskRefInvalid(true),
+    401: unauthorizedResponse,
+    404: taskCommentNotFound,
+    500: internalServerErrorResponse,
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/tasks/{taskRef}/comments/{commentId}",
+  tags: ["Comments"],
+  summary: "Edit a task comment",
+  description:
+    "Same as `PATCH /programs/{programId}/comments/{commentId}`, for a comment on this task (any task, including board tasks). " +
+    "Replaces the body and sets `editedAt`; mentions are re-parsed and diffed.\n\n" +
+    "Rules, in order: the task and the comment must exist (404); the caller must be its author (403 `FORBIDDEN`); then the mention rules " +
+    "(400 `TOO_MANY_MENTIONS`, 400 `MENTION_NOT_FOUND`; people already mentioned are exempt from the active check). " +
+    `${BY_TASK_REF}\n\n${BODY_HEADER}\n\n${AUTH_HEADER}\n\n` +
+    "**Authorization / roles:** the comment's **author** only (any role). Anyone else, including ADMINs and MANAGERs, gets 403 `FORBIDDEN`.",
+  security: bearerSecurity,
+  request: {
+    params: taskCommentIdParamSchema,
+    body: {
+      required: true,
+      content: {
+        "application/json": {
+          schema: updateCommentSchema,
+          example: { body: `Reproduced with a 40 MB report, @[Jane Doe](mention:${ids.jane}) please take it` },
+        },
+      },
+    },
+  },
+  responses: {
+    200: jsonResponse("The edited comment", commentEnvelope, {
+      data: {
+        ...exampleBoardTaskComment,
+        body: `Reproduced with a 40 MB report, @[Jane Doe](mention:${ids.jane}) please take it`,
+        updatedAt: "2026-10-17T11:30:00.000Z",
+        editedAt: "2026-10-17T11:30:00.000Z",
+      },
+    }),
+    400: validation400("Invalid params or body (unknown fields such as `parentId` are rejected), or a mention rule failed (`code`)", {
+      validation: { error: "Validation failed", details: [{ path: "", message: 'Unrecognized key: "parentId"' }] },
+      ...mentionErrors,
+    }),
+    401: unauthorizedResponse,
+    403: forbidden("`FORBIDDEN`: the caller isn't the comment's author"),
+    404: taskCommentNotFound,
+    500: internalServerErrorResponse,
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/tasks/{taskRef}/comments/{commentId}",
+  tags: ["Comments"],
+  summary: "Delete a task comment",
+  description:
+    "Same as `DELETE /programs/{programId}/comments/{commentId}`, for a comment on this task (any task, including board tasks). " +
+    "Soft-deletes the comment and removes its mention records; replies are kept, and a deleted top-level comment with active replies " +
+    `is listed as a tombstone. ${BY_TASK_REF}\n\n${AUTH_HEADER}\n\n` +
+    "**Authorization / roles:** ADMIN or MANAGER, or the comment's **author** (any role). Anyone else gets 403 `FORBIDDEN`.",
+  security: bearerSecurity,
+  request: { params: taskCommentIdParamSchema },
+  responses: {
+    204: { description: "Comment deleted" },
+    400: taskRefInvalid(true),
+    401: unauthorizedResponse,
+    403: forbidden("`FORBIDDEN`: the caller is a MEMBER who isn't the comment's author"),
+    404: taskCommentNotFound,
     500: internalServerErrorResponse,
   },
 });

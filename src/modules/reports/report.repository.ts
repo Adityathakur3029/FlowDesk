@@ -1,11 +1,13 @@
 import { and, eq, gte, isNotNull, lt, ne, or, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { db, type DbExecutor } from "../../db";
-import { programs, tasks, teams, type TaskPriority, type TaskStatus } from "../../db/schema";
+import { boards, programs, tasks, teams, type TaskPriority, type TaskStatus } from "../../db/schema";
 import type { DateRange, Granularity } from "./report.period";
+import type { ReportScope } from "./report.validation";
 
-// Aggregate queries behind GET /reports/overview. Soft-deleted programs and tasks are
-// excluded everywhere. Definitions: .claude/specs/09-overview-report.md
+// Aggregate queries behind GET /reports/overview. Soft-deleted programs and tasks are excluded
+// everywhere; board tasks count even when their board is deleted (boards never close).
+// Definitions: .claude/specs/09-overview-report.md and .claude/specs/10-boards.md
 
 const countWhere = (cond: SQL | undefined) => sql<number>`cast(count(*) filter (where ${cond}) as int)`;
 const countAll = sql<number>`cast(count(*) as int)`;
@@ -15,6 +17,7 @@ const inWindow = (column: PgColumn, window: DateRange) => and(gte(column, window
 const isOpen = ne(tasks.status, "DONE");
 const createdIn = (window: DateRange) => inWindow(tasks.createdAt, window);
 const completedIn = (window: DateRange) => and(eq(tasks.status, "DONE"), inWindow(tasks.completedAt, window));
+const isOverdue = (asOf: string) => and(isOpen, lt(tasks.dueDate, asOf));
 
 // Active, created before the period ends, and not finished before it starts
 function inScopeProgram(period: DateRange): SQL {
@@ -26,7 +29,21 @@ function inScopeProgram(period: DateRange): SQL {
   )!;
 }
 
-const activeProgramOfTask = and(eq(programs.id, tasks.programId), eq(programs.isActive, true));
+// Live tasks in the scope. Program tasks must also meet `programCond` (on the left-joined program);
+// board tasks have no board condition.
+function liveTasksIn(scope: ReportScope, programCond: SQL): SQL {
+  const programTask = and(isNotNull(tasks.programId), programCond)!;
+  const boardTask = isNotNull(tasks.boardId);
+  const inScope = scope === "programs" ? programTask : scope === "boards" ? boardTask : or(programTask, boardTask);
+  return and(eq(tasks.isActive, true), inScope)!;
+}
+
+// Event counts: every live task of an active program, plus every live board task
+const eventTasks = (scope: ReportScope) => liveTasksIn(scope, eq(programs.isActive, true));
+// Snapshots and breakdowns: tasks of in-scope programs, plus every live board task
+const snapshotTasks = (scope: ReportScope, period: DateRange) => liveTasksIn(scope, inScopeProgram(period));
+
+const programOfTask = eq(programs.id, tasks.programId);
 
 export interface ProgramReportRow {
   id: string;
@@ -38,6 +55,17 @@ export interface ProgramReportRow {
   completedAt: Date | null;
   ownerTeamId: string | null;
   ownerTeamName: string | null;
+  tasksTotal: number;
+  tasksDone: number;
+  tasksCompletedInPeriod: number;
+  openTasks: number;
+  overdueTasks: number;
+}
+
+export interface BoardReportRow {
+  id: string;
+  key: string;
+  name: string;
   tasksTotal: number;
   tasksDone: number;
   tasksCompletedInPeriod: number;
@@ -57,13 +85,13 @@ export interface TaskEventTotals {
 export function createReportRepository(executor: DbExecutor = db) {
   // Tasks created or completed per trend bucket. The unit is a fixed literal, not a
   // parameter, so the SELECT and GROUP BY expressions are identical.
-  function countPerBucket(column: PgColumn, cond: SQL | undefined, granularity: Granularity) {
+  function countPerBucket(column: PgColumn, cond: SQL | undefined, granularity: Granularity, scope: ReportScope) {
     const bucket = sql<string>`to_char(date_trunc(${sql.raw(`'${granularity}'`)}, ${column} at time zone 'UTC'), 'YYYY-MM-DD')`;
     return executor
       .select({ bucket, count: countAll })
       .from(tasks)
-      .innerJoin(programs, activeProgramOfTask)
-      .where(and(eq(tasks.isActive, true), cond))
+      .leftJoin(programs, programOfTask)
+      .where(and(eventTasks(scope), cond))
       .groupBy(bucket);
   }
 
@@ -87,7 +115,7 @@ export function createReportRepository(executor: DbExecutor = db) {
           tasksDone: countWhere(eq(tasks.status, "DONE")),
           tasksCompletedInPeriod: countWhere(completedIn(period)),
           openTasks: countWhere(isOpen),
-          overdueTasks: countWhere(and(isOpen, lt(tasks.dueDate, asOf))),
+          overdueTasks: countWhere(isOverdue(asOf)),
         })
         .from(programs)
         .leftJoin(teams, and(eq(teams.id, programs.ownerTeamId), eq(teams.isActive, true)))
@@ -96,8 +124,28 @@ export function createReportRepository(executor: DbExecutor = db) {
         .groupBy(programs.id, teams.id);
     },
 
-    // Created/completed counts over every live task, for the period and the previous one
-    async taskEventTotals(period: DateRange, previous: DateRange): Promise<TaskEventTotals> {
+    // One row per active board with at least one live task. Deleted boards have no row,
+    // though their tasks still count in the totals.
+    boardRows(period: DateRange, asOf: string): Promise<BoardReportRow[]> {
+      return executor
+        .select({
+          id: boards.id,
+          key: boards.key,
+          name: boards.name,
+          tasksTotal: countAll,
+          tasksDone: countWhere(eq(tasks.status, "DONE")),
+          tasksCompletedInPeriod: countWhere(completedIn(period)),
+          openTasks: countWhere(isOpen),
+          overdueTasks: countWhere(isOverdue(asOf)),
+        })
+        .from(boards)
+        .innerJoin(tasks, and(eq(tasks.boardId, boards.id), eq(tasks.isActive, true)))
+        .where(eq(boards.isActive, true))
+        .groupBy(boards.id);
+    },
+
+    // Created/completed counts over every live task in scope, for the period and the previous one
+    async taskEventTotals(period: DateRange, previous: DateRange, scope: ReportScope): Promise<TaskEventTotals> {
       const both = { ...period, start: previous.start }; // previous ends where period starts
       const completedInPeriod = completedIn(period);
       const [row] = await executor
@@ -112,21 +160,20 @@ export function createReportRepository(executor: DbExecutor = db) {
           ),
         })
         .from(tasks)
-        .innerJoin(programs, activeProgramOfTask)
-        .where(and(eq(tasks.isActive, true), or(createdIn(both), inWindow(tasks.completedAt, both))));
+        .leftJoin(programs, programOfTask)
+        .where(and(eventTasks(scope), or(createdIn(both), inWindow(tasks.completedAt, both))));
       return row!;
     },
 
-    // Tasks of in-scope programs that were live in the period, by current status
-    tasksByStatus(period: DateRange): Promise<{ status: TaskStatus; count: number }[]> {
+    // Snapshot tasks that were live in the period, by current status
+    tasksByStatus(period: DateRange, scope: ReportScope): Promise<{ status: TaskStatus; count: number }[]> {
       return executor
         .select({ status: tasks.status, count: countAll })
         .from(tasks)
-        .innerJoin(programs, eq(programs.id, tasks.programId))
+        .leftJoin(programs, programOfTask)
         .where(
           and(
-            inScopeProgram(period),
-            eq(tasks.isActive, true),
+            snapshotTasks(scope, period),
             lt(tasks.createdAt, period.end),
             or(isOpen, gte(tasks.completedAt, period.start)),
           ),
@@ -134,22 +181,27 @@ export function createReportRepository(executor: DbExecutor = db) {
         .groupBy(tasks.status);
     },
 
-    // Open tasks of in-scope programs, as of now, by priority
-    openTasksByPriority(period: DateRange): Promise<{ priority: TaskPriority; count: number }[]> {
+    // Open snapshot tasks, as of now, by priority, with how many of them are overdue.
+    // Their sums are totals.openTasks / overdueTasks (deleted boards' tasks have no row to sum).
+    openTasksByPriority(
+      period: DateRange,
+      asOf: string,
+      scope: ReportScope,
+    ): Promise<{ priority: TaskPriority; count: number; overdue: number }[]> {
       return executor
-        .select({ priority: tasks.priority, count: countAll })
+        .select({ priority: tasks.priority, count: countAll, overdue: countWhere(isOverdue(asOf)) })
         .from(tasks)
-        .innerJoin(programs, eq(programs.id, tasks.programId))
-        .where(and(inScopeProgram(period), eq(tasks.isActive, true), isOpen))
+        .leftJoin(programs, programOfTask)
+        .where(and(snapshotTasks(scope, period), isOpen))
         .groupBy(tasks.priority);
     },
 
-    createdPerBucket(period: DateRange, granularity: Granularity) {
-      return countPerBucket(tasks.createdAt, createdIn(period), granularity);
+    createdPerBucket(period: DateRange, granularity: Granularity, scope: ReportScope) {
+      return countPerBucket(tasks.createdAt, createdIn(period), granularity, scope);
     },
 
-    completedPerBucket(period: DateRange, granularity: Granularity) {
-      return countPerBucket(tasks.completedAt, completedIn(period), granularity);
+    completedPerBucket(period: DateRange, granularity: Granularity, scope: ReportScope) {
+      return countPerBucket(tasks.completedAt, completedIn(period), granularity, scope);
     },
   };
 }

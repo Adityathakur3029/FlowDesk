@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { taskPriority, taskStatus, taskType } from "../../db/schema";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../../db/repository";
+import { boardIdParamSchema } from "../boards/board.validation";
 import { programIdParamSchema } from "../programs/program.validation";
+import { boardParent, programParent, type TaskParent } from "./task.parent";
 
 // These schemas validate requests at runtime and also generate the OpenAPI docs
 // (see task.docs.ts), so keep the `.meta` descriptions accurate.
@@ -43,9 +45,9 @@ export const taskPrioritySchema = z
 export const taskTypeSchema = z.enum(taskType.enumValues).meta({
   id: "TaskType",
   description:
-    "PRE: prerequisite work before the program starts. TASK: the program's main work (default). " +
-    "POST: work after the program ends. BUG: something broken to fix. ISSUE: a problem, risk or question to resolve. " +
-    "The type is informational: it doesn't affect status, dependencies or the program's status. " +
+    "PRE: prerequisite work before the main work starts. TASK: the main work (default). " +
+    "POST: follow-up work after the main work is done. BUG: something broken to fix. ISSUE: a problem, risk or question to resolve. " +
+    "The type is informational: it doesn't affect status, dependencies or the parent's status. " +
     "Sort order is PRE < TASK < POST < BUG < ISSUE.",
   example: "PRE",
 });
@@ -112,7 +114,7 @@ export const createTaskSchema = z
       .refine((ids) => new Set(ids).size === ids.length, "dependsOn must not contain duplicates")
       .default([])
       .meta({
-        description: `Ids of tasks in the same program that block this one; unique, at most ${MAX_DEPENDENCIES}`,
+        description: `Ids of tasks with the same parent (program or board) that block this one; unique, at most ${MAX_DEPENDENCIES}`,
         example: ["0e6c1f2a-4b8d-4c3e-9f7a-1d2b3c4d5e6f"],
       }),
   })
@@ -136,23 +138,26 @@ export const updateTaskSchema = z
       labels: taskFields.labels.optional().meta({ description: "Replaces the whole label list" }),
     },
     {
-      error: (iss) =>
-        iss.code === "unrecognized_keys" && iss.keys.includes("dependsOn")
-          ? "Use the dependency endpoints to change dependencies"
-          : undefined,
+      error: (iss) => {
+        if (iss.code !== "unrecognized_keys") return undefined;
+        if (iss.keys.includes("dependsOn")) return "Use the dependency endpoints to change dependencies";
+        if (iss.keys.includes("programId") || iss.keys.includes("boardId")) return "A task's parent can't be changed";
+        return undefined;
+      },
     },
   )
   .refine((body) => Object.keys(body).length > 0, "At least one field is required")
   .meta({
     id: "UpdateTaskRequest",
     description:
-      "Send at least one field. Nullable fields accept null to clear them. Unknown fields (including `dependsOn`) are rejected.",
+      "Send at least one field. Nullable fields accept null to clear them. Unknown fields are rejected, including `dependsOn` " +
+      "and `programId`/`boardId` (a task's parent is fixed at creation).",
   });
 
 export const addDependencySchema = z
   .object({
     dependsOnTaskId: z.uuid().meta({
-      description: "Id of the blocking task (same program)",
+      description: "Id of the blocking task (same program or board)",
       example: "0e6c1f2a-4b8d-4c3e-9f7a-1d2b3c4d5e6f",
     }),
   })
@@ -193,6 +198,14 @@ export const listTasksQuerySchema = z
     }),
     dueFrom: z.iso.date().optional().meta({ description: "Due on or after this date (YYYY-MM-DD)", example: "2026-10-01" }),
     dueTo: z.iso.date().optional().meta({ description: "Due on or before this date (YYYY-MM-DD)", example: "2026-10-31" }),
+    createdFrom: z.iso.date().optional().meta({
+      description: "Created on or after this date (YYYY-MM-DD, compared with the UTC date of `createdAt`)",
+      example: "2026-10-22",
+    }),
+    createdTo: z.iso.date().optional().meta({
+      description: "Created on or before this date (YYYY-MM-DD, compared with the UTC date of `createdAt`)",
+      example: "2026-10-28",
+    }),
     isDependent: z.stringbool().optional().meta({
       description: "Filter on the computed `isDependent` flag (the task has at least one dependency)",
       example: "true",
@@ -224,18 +237,44 @@ export const listTasksQuerySchema = z
     if (query.dueFrom && query.dueTo && query.dueFrom > query.dueTo) {
       ctx.addIssue({ code: "custom", path: ["dueTo"], message: "dueTo must be on or after dueFrom" });
     }
+    if (query.createdFrom && query.createdTo && query.createdFrom > query.createdTo) {
+      ctx.addIssue({ code: "custom", path: ["createdTo"], message: "createdTo must be on or after createdFrom" });
+    }
   });
 
-export const taskRefParamSchema = programIdParamSchema.extend({
+// /tasks/:taskRef: any reachable task, whatever its parent
+export const taskRefOnlyParamSchema = z.object({
   taskRef: z
     .string()
     .refine((ref) => isUuid(ref) || TASK_KEY_RE.test(ref), "Must be a task UUID or a task key like MKT-7")
     .meta({ description: "Task UUID, or task key such as `MKT-7` (case-insensitive)", example: "MKT-7" }),
 });
 
-export const dependencyParamSchema = taskRefParamSchema.extend({
+// /programs/:programId/tasks/:taskRef: the task must be in that program
+export const taskRefParamSchema = programIdParamSchema.extend(taskRefOnlyParamSchema.shape);
+
+const dependsOnTaskIdShape = {
   dependsOnTaskId: z.uuid().meta({ description: "Id of the blocking task to unlink", example: "0e6c1f2a-4b8d-4c3e-9f7a-1d2b3c4d5e6f" }),
-});
+};
+
+export const dependencyParamSchema = taskRefParamSchema.extend(dependsOnTaskIdShape);
+export const taskRefDependencyParamSchema = taskRefOnlyParamSchema.extend(dependsOnTaskIdShape);
+
+// How a single-task route finds its task: within a program (/programs/:programId/tasks/:taskRef…),
+// or by UUID or key alone (/tasks/:taskRef…). See "Reachable task" in .claude/specs/10-boards.md
+export type TaskLocator = { programId: string; taskRef: string } | { taskRef: string };
+
+// The same handlers serve both mounts; the program one has :programId in its params
+export function parseTaskLocator(params: Record<string, unknown>): TaskLocator {
+  return "programId" in params ? taskRefParamSchema.parse(params) : taskRefOnlyParamSchema.parse(params);
+}
+
+// The parent of a task list or create route: /programs/:programId/tasks or /boards/:boardId/tasks
+export function parseTaskParent(params: Record<string, unknown>): TaskParent {
+  return "boardId" in params
+    ? boardParent(boardIdParamSchema.parse(params).boardId)
+    : programParent(programIdParamSchema.parse(params).programId);
+}
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;

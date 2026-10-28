@@ -71,6 +71,13 @@
       "when": 1792484570199,
       "tag": "0009_add_program_completion_and_report_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793168869253,
+      "tag": "0010_add_boards_and_global_task_numbers",
+      "breakpoints": true
     }
   ]
 }

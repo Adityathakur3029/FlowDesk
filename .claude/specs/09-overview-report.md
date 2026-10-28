@@ -4,6 +4,14 @@
 **Branch:** `middleware`
 **Depends on:** [04-program-tasks](./04-program-tasks.md) (`programs`, `tasks`, `tasks.completed_at`, program `startDate`/`endDate`, `INVALID_DATE_RANGE`), [06-teams](./06-teams.md) (`programs.owner_team_id`), [03-login](./03-login.md) (`requireAuth`, `authNote`)
 
+> **Changed by [10-boards](./10-boards.md):**
+> - New `scope=all|programs|boards` query param and a `boards[]` breakdown.
+> - Board tasks count in every task number (event and snapshot), even on a deleted board.
+> - `totals.openTasks`/`overdueTasks` are now counted in SQL instead of summed from `programs[]`.
+> - Program-only numbers are 0/empty under `scope=boards`.
+>
+> The definitions below still hold for program tasks.
+
 ## Goal
 
 Leadership wants an organisation **Overview** page: how the org did over a date range. The frontend sends a preset (last 12 months by default, last 3 months, last 1 month) or a custom range. The current contract can't produce it: `GET /programs` has no date filters, a program has no completion time, and tasks are listed only per program.

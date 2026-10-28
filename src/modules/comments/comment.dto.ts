@@ -19,6 +19,7 @@ export function toCommentReplyDto({ comment, author, mentions }: CommentView) {
     updatedAt: comment.updatedAt,
     isActive: comment.isActive,
     programId: comment.programId,
+    boardId: comment.boardId,
     taskId: comment.taskId,
     parentId: comment.parentId,
     author: deleted ? null : author,

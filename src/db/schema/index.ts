@@ -4,5 +4,6 @@ export * from "./teams";
 export * from "./employees";
 export * from "./employeeInvites";
 export * from "./programs";
+export * from "./boards";
 export * from "./tasks";
 export * from "./comments";

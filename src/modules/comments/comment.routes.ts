@@ -19,3 +19,13 @@ export const taskCommentRouter = Router({ mergeParams: true });
 
 taskCommentRouter.get("/", requireAuth, commentController.listForTask);
 taskCommentRouter.post("/", requireAuth, commentController.createForTask);
+
+// Mounted at /tasks/:taskRef/comments: any reachable task, in a program or a board.
+// Get/edit/delete by id only find comments on this task.
+export const taskRefCommentRouter = Router({ mergeParams: true });
+
+taskRefCommentRouter.get("/", requireAuth, commentController.listForTask);
+taskRefCommentRouter.post("/", requireAuth, commentController.createForTask);
+taskRefCommentRouter.get("/:commentId", requireAuth, commentController.getForTask);
+taskRefCommentRouter.patch("/:commentId", requireAuth, commentController.updateForTask);
+taskRefCommentRouter.delete("/:commentId", requireAuth, commentController.removeForTask);

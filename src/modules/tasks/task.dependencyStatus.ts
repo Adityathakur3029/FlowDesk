@@ -3,7 +3,7 @@ import { taskRepository } from "./task.repository";
 import { taskDependencyRepository } from "./taskDependency.repository";
 
 // The only code that sets or clears DEPENDENT. Run inside the caller's transaction,
-// after the program row is locked. See "Dependency and status rules" in spec 04.
+// after the parent (program or board) row is locked. See "Dependency and status rules" in spec 04.
 export async function syncDependentStatus(tx: DbExecutor, taskId: string): Promise<void> {
   const taskRepo = taskRepository.withTx(tx);
   const task = await taskRepo.findById(taskId);

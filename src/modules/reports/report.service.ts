@@ -1,11 +1,12 @@
 import { withReadSnapshot, type DbExecutor } from "../../db";
 import { programStatus, taskPriority, taskStatus, type ProgramStatus, type TaskPriority, type TaskStatus } from "../../db/schema";
 import { resolvePeriod, type ReportPeriod } from "./report.period";
-import { reportRepository, type ProgramReportRow } from "./report.repository";
-import type { OverviewReportQuery } from "./report.validation";
+import { reportRepository, type BoardReportRow, type ProgramReportRow } from "./report.repository";
+import type { OverviewReportQuery, ReportScope } from "./report.validation";
 
 // Builds GET /reports/overview. Every query runs in one read-only snapshot so the numbers
 // add up; the per-program rows are rolled up here. See .claude/specs/09-overview-report.md
+// and, for `scope` and board rows, .claude/specs/10-boards.md
 
 const CLOSED_STATUSES: ReadonlySet<ProgramStatus> = new Set(["COMPLETED", "CANCELLED"]);
 // Response order: most urgent first
@@ -78,17 +79,26 @@ function compareProgramRows(a: ProgramRow, b: ProgramRow): number {
   return byName(a.name, b.name) || (a.id < b.id ? -1 : 1);
 }
 
-async function buildReport(executor: DbExecutor, p: ReportPeriod) {
+// Most overdue first, then name, then id (a total order)
+function compareBoardRows(a: BoardReportRow, b: BoardReportRow): number {
+  if (a.overdueTasks !== b.overdueTasks) return b.overdueTasks - a.overdueTasks;
+  return byName(a.name, b.name) || (a.id < b.id ? -1 : 1);
+}
+
+async function buildReport(executor: DbExecutor, p: ReportPeriod, scope: ReportScope) {
   const repo = reportRepository.withTx(executor);
-  // Sequential: a transaction runs one query at a time on its connection anyway
-  const programRows = await repo.programRows(p.period, p.asOf);
-  const events = await repo.taskEventTotals(p.period, p.previous);
-  const statusCounts = await repo.tasksByStatus(p.period);
-  const priorityCounts = await repo.openTasksByPriority(p.period);
-  const createdPerBucket = await repo.createdPerBucket(p.period, p.granularity);
-  const completedPerBucket = await repo.completedPerBucket(p.period, p.granularity);
+  // Sequential: a transaction runs one query at a time on its connection anyway.
+  // Program-only numbers are empty under scope=boards, board rows under scope=programs.
+  const programRows = scope === "boards" ? [] : await repo.programRows(p.period, p.asOf);
+  const boardRows = scope === "programs" ? [] : await repo.boardRows(p.period, p.asOf);
+  const events = await repo.taskEventTotals(p.period, p.previous, scope);
+  const statusCounts = await repo.tasksByStatus(p.period, scope);
+  const priorityCounts = await repo.openTasksByPriority(p.period, p.asOf, scope);
+  const createdPerBucket = await repo.createdPerBucket(p.period, p.granularity, scope);
+  const completedPerBucket = await repo.completedPerBucket(p.period, p.granularity, scope);
 
   const programs = programRows.map((row) => toProgramRow(row, p.asOf)).sort(compareProgramRows);
+  const boards = [...boardRows].sort(compareBoardRows);
 
   const programsByStatus = zeroCounts(programStatus.enumValues);
   for (const row of programs) programsByStatus[row.status] += 1;
@@ -108,7 +118,7 @@ async function buildReport(executor: DbExecutor, p: ReportPeriod) {
     completed: completed.get(b.key) ?? 0,
   }));
 
-  const sum = (pick: (row: ProgramRow) => number) => programs.reduce((total, row) => total + pick(row), 0);
+  const sum = <T>(rows: T[], pick: (row: T) => number) => rows.reduce((total, row) => total + pick(row), 0);
   const inPeriod = (at: Date | null) => at !== null && at >= p.period.start && at < p.period.end;
 
   return {
@@ -125,8 +135,9 @@ async function buildReport(executor: DbExecutor, p: ReportPeriod) {
       tasksCompletedPrevious: events.completedPrevious,
       tasksCompletedWithDueDate: events.completedWithDueDate,
       tasksCompletedOnTime: events.completedOnTime,
-      openTasks: sum((row) => row.openTasks),
-      overdueTasks: sum((row) => row.overdueTasks),
+      // From SQL, not summed from the rows: a deleted board's tasks count but have no row
+      openTasks: sum(priorityCounts, (row) => row.count),
+      overdueTasks: sum(priorityCounts, (row) => row.overdue),
     },
     programsByStatus,
     tasksByStatus,
@@ -134,17 +145,20 @@ async function buildReport(executor: DbExecutor, p: ReportPeriod) {
     trend,
     teams: rollUpTeams(programs),
     programs,
+    boards,
   };
 }
 
 export type OverviewReport = Awaited<ReturnType<typeof buildReport>>;
 
-// `now` fixes "today" (asOf); `executor` runs the queries in an existing transaction (tests)
+// `now` fixes "today" (asOf); `executor` runs the queries in an existing transaction (tests).
+// `scope` defaults to "all", as in the query schema.
 export function getOverviewReport(
-  query: OverviewReportQuery,
+  query: Omit<OverviewReportQuery, "scope"> & { scope?: ReportScope },
   now: Date = new Date(),
   executor?: DbExecutor,
 ): Promise<OverviewReport> {
   const period = resolvePeriod(query.from, query.to, now);
-  return executor ? buildReport(executor, period) : withReadSnapshot((tx) => buildReport(tx, period));
+  const scope = query.scope ?? "all";
+  return executor ? buildReport(executor, period, scope) : withReadSnapshot((tx) => buildReport(tx, period, scope));
 }

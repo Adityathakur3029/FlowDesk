@@ -8,6 +8,7 @@ import "../modules/employees/employee.docs";
 import "../modules/invites/invite.docs";
 import "../modules/teams/team.docs";
 import "../modules/programs/program.docs";
+import "../modules/boards/board.docs";
 import "../modules/tasks/task.docs";
 import "../modules/comments/comment.docs";
 import "../modules/reports/report.docs";
@@ -34,8 +35,12 @@ export function buildOpenApiDocument() {
       { name: "Invites", description: "Invite new members by email and accept invites" },
       { name: "Teams", description: "Teams of employees; every program has an owner team" },
       { name: "Programs", description: "Programs, the core entity that owns tasks and future research content" },
-      { name: "Tasks", description: "Jira-style tasks within a program, including dependencies" },
-      { name: "Comments", description: "Discussion threads on programs and tasks, with @mentions" },
+      { name: "Boards", description: "Lightweight task containers that never close; their tasks behave like program tasks" },
+      {
+        name: "Tasks",
+        description: "Jira-style tasks in a program or a board, including dependencies. `/tasks/{taskRef}` serves any task by UUID or key.",
+      },
+      { name: "Comments", description: "Discussion threads on programs and on program and board tasks, with @mentions" },
       { name: "Reports", description: "Organisation-wide reports computed from programs and tasks" },
     ],
   });

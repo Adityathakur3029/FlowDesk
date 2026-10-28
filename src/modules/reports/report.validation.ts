@@ -11,6 +11,14 @@ export const overviewReportQuerySchema = z.object({
     description: "Last day of the period, YYYY-MM-DD (UTC), inclusive. Required. On or after `from`; may be in the future.",
     example: "2026-10-20",
   }),
+  scope: z.enum(["all", "programs", "boards"]).default("all").meta({
+    description:
+      "Which tasks the task numbers cover: `all` (default, program and board tasks), `programs` (program tasks only) or `boards` " +
+      "(board tasks only). Program-only numbers (`totals.programs*`, `programsByStatus`, `teams`, `programs`) always cover programs, " +
+      "and are 0 / empty under `boards`. `boards` rows are empty under `programs`.",
+    example: "all",
+  }),
 });
 
 export type OverviewReportQuery = z.infer<typeof overviewReportQuerySchema>;
+export type ReportScope = OverviewReportQuery["scope"];

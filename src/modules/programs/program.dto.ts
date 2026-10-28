@@ -1,7 +1,6 @@
 import type { Program } from "../../db/schema";
 
-// Public shape of a program (matches programSchema in program.docs.ts).
-// task_counter is internal and never returned.
+// Public shape of a program (matches programSchema in program.docs.ts)
 export function toProgramDto(program: Program) {
   return {
     id: program.id,

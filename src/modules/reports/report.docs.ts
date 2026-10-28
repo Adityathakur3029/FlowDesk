@@ -13,7 +13,8 @@ import { programStatusSchema } from "../programs/program.validation";
 import { buildBuckets, MAX_RANGE_DAYS, WEEKLY_MAX_DAYS } from "./report.period";
 import { overviewReportQuerySchema } from "./report.validation";
 
-// Mirrors the object built in report.service.ts. Definitions: .claude/specs/09-overview-report.md
+// Mirrors the object built in report.service.ts. Definitions: .claude/specs/09-overview-report.md,
+// and for `scope` and board rows .claude/specs/10-boards.md
 
 const count = (description: string) => z.number().int().min(0).meta({ description });
 const isoDate = (description: string) => z.iso.date().meta({ description });
@@ -43,25 +44,33 @@ const previousPeriodSchema = registry.register(
 
 const totalsSchema = registry.register(
   "OverviewTotals",
-  z.object({
-    programs: count("In-scope programs: active, created before the period ended, and not completed/cancelled before it started"),
-    programsCompleted: count(
-      "In-scope programs that are COMPLETED now with `completedAt` in the period (a program reopened since doesn't count)",
-    ),
-    programsAtRisk: count(
-      "In-scope programs with an `endDate` before `asOf` that aren't COMPLETED or CANCELLED. Programs without an endDate are never at risk.",
-    ),
-    tasksCreated: count("Tasks created in the period, across every active program (event count)"),
-    tasksCreatedPrevious: count("Tasks created in the previous period, across every active program"),
-    tasksCompleted: count(
-      "Tasks DONE now whose `completedAt` (last move to DONE) is in the period, across every active program (event count)",
-    ),
-    tasksCompletedPrevious: count("The same for the previous period"),
-    tasksCompletedWithDueDate: count("Of `tasksCompleted`, those with a due date: the denominator of the on-time rate"),
-    tasksCompletedOnTime: count("Of `tasksCompletedWithDueDate`, those whose completion date (UTC) is on or before the due date"),
-    openTasks: count("Tasks of in-scope programs that aren't DONE, as of now (snapshot)"),
-    overdueTasks: count("Of `openTasks`, those with a due date before `asOf`"),
-  }),
+  z
+    .object({
+      programs: count(
+        "In-scope programs: active, created before the period ended, and not completed/cancelled before it started. 0 under `scope=boards`.",
+      ),
+      programsCompleted: count(
+        "In-scope programs that are COMPLETED now with `completedAt` in the period (a program reopened since doesn't count). 0 under `scope=boards`.",
+      ),
+      programsAtRisk: count(
+        "In-scope programs with an `endDate` before `asOf` that aren't COMPLETED or CANCELLED. Programs without an endDate are never at risk. " +
+          "0 under `scope=boards`.",
+      ),
+      tasksCreated: count("Tasks in scope created in the period: tasks of every active program and/or every board task (event count)"),
+      tasksCreatedPrevious: count("The same for the previous period"),
+      tasksCompleted: count("Tasks in scope DONE now whose `completedAt` (last move to DONE) is in the period (event count)"),
+      tasksCompletedPrevious: count("The same for the previous period"),
+      tasksCompletedWithDueDate: count("Of `tasksCompleted`, those with a due date: the denominator of the on-time rate"),
+      tasksCompletedOnTime: count("Of `tasksCompletedWithDueDate`, those whose completion date (UTC) is on or before the due date"),
+      openTasks: count(
+        "Snapshot tasks that aren't DONE, as of now: tasks of in-scope programs and/or every board task (including on deleted boards)",
+      ),
+      overdueTasks: count("Of `openTasks`, those with a due date before `asOf`"),
+    })
+    .meta({
+      description:
+        "Task numbers cover the tasks selected by `scope` (`all` = program and board tasks). Program numbers cover programs only.",
+    }),
 );
 
 const programsByStatusSchema = registry.register(
@@ -74,7 +83,10 @@ const programsByStatusSchema = registry.register(
       COMPLETED: count("In-scope programs COMPLETED now"),
       CANCELLED: count("In-scope programs CANCELLED now"),
     })
-    .meta({ description: "In-scope programs by **current** status (there's no status history). Sums to `totals.programs`." }),
+    .meta({
+      description:
+        "In-scope programs by **current** status (there's no status history). Sums to `totals.programs`. Every key is 0 under `scope=boards`.",
+    }),
 );
 
 const tasksByStatusSchema = registry.register(
@@ -89,8 +101,8 @@ const tasksByStatusSchema = registry.register(
     })
     .meta({
       description:
-        "Tasks of in-scope programs that were live in the period (created before it ended, and open or completed on/after `from`), " +
-        "by **current** status.",
+        "Snapshot tasks in scope (tasks of in-scope programs and/or board tasks) that were live in the period (created before it ended, " +
+        "and open or completed on/after `from`), by **current** status.",
     }),
 );
 
@@ -136,7 +148,11 @@ const teamRowSchema = registry.register(
       openTasks: count("Open tasks in those programs, as of now"),
       overdueTasks: count("Overdue tasks in those programs, as of now"),
     })
-    .meta({ description: "Rolled up by program owner team. Teams owning no in-scope program are left out." }),
+    .meta({
+      description:
+        "Rolled up by program owner team; board tasks are never included. Teams owning no in-scope program are left out. " +
+        "Empty under `scope=boards`.",
+    }),
 );
 
 const programRowSchema = registry.register(
@@ -162,6 +178,26 @@ const programRowSchema = registry.register(
   }),
 );
 
+const boardRowSchema = registry.register(
+  "BoardReportRow",
+  z
+    .object({
+      id: z.uuid(),
+      key: z.string(),
+      name: z.string(),
+      tasksTotal: count("All live tasks on the board"),
+      tasksDone: count("Tasks DONE now"),
+      tasksCompletedInPeriod: count("Tasks completed in the period"),
+      openTasks: count("Tasks not DONE, as of now"),
+      overdueTasks: count("Open tasks with a due date before `asOf`"),
+    })
+    .meta({
+      description:
+        "One active board with at least one live task. Boards never close, so every such board is listed whatever the period. " +
+        "A soft-deleted board has no row, though its tasks still count in the totals.",
+    }),
+);
+
 const overviewReportSchema = registry.register(
   "OverviewReport",
   z.object({
@@ -177,7 +213,14 @@ const overviewReportSchema = registry.register(
       description: "Ordered by name (ignoring case), then teamId; the no-team row (teamId null) last",
     }),
     programs: z.array(programRowSchema).meta({
-      description: "Every in-scope program, unpaginated. Ordered: atRisk first, then overdueTasks descending, then name (ignoring case), then id.",
+      description:
+        "Every in-scope program, unpaginated. Ordered: atRisk first, then overdueTasks descending, then name (ignoring case), then id. " +
+        "Empty under `scope=boards`.",
+    }),
+    boards: z.array(boardRowSchema).meta({
+      description:
+        "Every active board with at least one live task, unpaginated. Ordered: overdueTasks descending, then name (ignoring case), then id. " +
+        "Empty under `scope=programs`.",
     }),
   }),
 );
@@ -205,12 +248,12 @@ const exampleReport = {
     tasksCompletedPrevious: 30,
     tasksCompletedWithDueDate: 29,
     tasksCompletedOnTime: 22,
-    openTasks: 44,
-    overdueTasks: 7,
+    openTasks: 51,
+    overdueTasks: 9,
   },
   programsByStatus: { PLANNED: 1, ACTIVE: 2, ON_HOLD: 0, COMPLETED: 1, CANCELLED: 0 },
-  tasksByStatus: { DISCUSSION: 9, ON_HOLD: 4, IN_PROGRESS: 21, DONE: 37, DEPENDENT: 10 },
-  openTasksByPriority: { HIGHEST: 3, HIGH: 11, MEDIUM: 20, LOW: 8, LOWEST: 2 },
+  tasksByStatus: { DISCUSSION: 13, ON_HOLD: 4, IN_PROGRESS: 24, DONE: 37, DEPENDENT: 10 },
+  openTasksByPriority: { HIGHEST: 3, HIGH: 13, MEDIUM: 25, LOW: 8, LOWEST: 2 },
   trend: buildBuckets("2026-07-22", "2026-10-20", "week").map((b, i) => ({
     start: b.start,
     end: b.end,
@@ -288,6 +331,18 @@ const exampleReport = {
       atRisk: false,
     },
   ],
+  boards: [
+    {
+      id: "8c7d6e5f-4a3b-4c2d-9e1f-0a9b8c7d6e5f",
+      key: "PRO",
+      name: "Product feedback",
+      tasksTotal: 7,
+      tasksDone: 0,
+      tasksCompletedInPeriod: 0,
+      openTasks: 7,
+      overdueTasks: 2,
+    },
+  ],
 };
 
 const description = [
@@ -305,24 +360,32 @@ const description = [
     "- *On time*: completed in the period with a due date, and the completion date (UTC) on or before it. Tasks without a due date are left " +
     "out of both `tasksCompletedOnTime` and `tasksCompletedWithDueDate`.\n" +
     "- *At risk*: an in-scope program with an `endDate` before `asOf` that isn't COMPLETED or CANCELLED.",
+  "**Scope.** `scope` picks the tasks behind every task number: `all` (default) = program tasks and board tasks, `programs` = program " +
+    "tasks only, `boards` = board tasks only. Board tasks always count, **even on a soft-deleted board** (boards never close; deleting one " +
+    "hides only the board). Program-only numbers (`totals.programs`, `programsCompleted`, `programsAtRisk`, `programsByStatus`, `teams`, " +
+    "`programs`) always cover programs; they are the same under `all` and `programs`, and 0 / empty under `boards`. `boards` is empty " +
+    "under `programs`. The response shape never changes.",
   "**Two task scopes.** Event counts (`tasksCreated*`, `tasksCompleted*`, `trend`) count every live task in every non-deleted program, " +
-    "so the previous-period deltas compare like with like. Snapshot and breakdown counts (`openTasks`, `overdueTasks`, `tasksByStatus`, " +
-    "`openTasksByPriority`, `teams`, `programs`) count only tasks of in-scope programs. The sums of `programs[].tasksCompletedInPeriod` " +
-    "and `teams[].tasksCompleted` can therefore be lower than `totals.tasksCompleted`, but only when tasks were completed in a program that " +
-    "had already finished before the period. `trend` sums to the created/completed totals, and `openTasksByPriority`, `programs[].openTasks` " +
-    "and `teams[].openTasks` each sum to `totals.openTasks`.",
+    "plus every live board task, so the previous-period deltas compare like with like. Snapshot and breakdown counts (`openTasks`, " +
+    "`overdueTasks`, `tasksByStatus`, `openTasksByPriority`, `teams`, `programs`, `boards`) count only tasks of in-scope programs, plus every " +
+    "live board task. The sums of `programs[].tasksCompletedInPeriod` and `teams[].tasksCompleted` can therefore be lower than " +
+    "`totals.tasksCompleted`, but only when tasks were completed in a program that had already finished before the period.",
+  "**What adds up.** `trend` sums to the created/completed totals. `openTasksByPriority` sums to `totals.openTasks`. " +
+    "`programs[].openTasks + boards[].openTasks` equals `totals.openTasks` (and the same for `overdueTasks`), except for open tasks on " +
+    "soft-deleted boards, which count in the totals but have no row. `teams[].openTasks` sums to `programs[].openTasks`.",
   "**Statuses are current.** There's no status history, so `programsByStatus` and `tasksByStatus` use each row's status now, and the " +
     "open/overdue numbers are as of now even when `to` is in the past.",
   `**Trend.** Weekly (ISO weeks, Monday-Sunday) when the period is at most ${WEEKLY_MAX_DAYS} days, otherwise monthly; in UTC. ` +
     "Buckets cover the period exactly: the first starts on `from` and the last ends on `to`, so either may be partial.",
-  "Soft-deleted programs and tasks are excluded everywhere. An empty organisation or range returns zeros, every status and priority " +
-    "key, empty `teams` and `programs`, and the trend buckets.",
+  "Soft-deleted programs and tasks are excluded everywhere (soft-deleted boards aren't: only their row is). An empty organisation or " +
+    "range returns zeros, every status and priority key, empty `teams`, `programs` and `boards`, and the trend buckets.",
   authNote(),
 ].join("\n\n");
 
 const badRequest = {
   description:
-    "`Validation failed`: `from` or `to` is missing, repeated, or not a real `YYYY-MM-DD` date (`details[].path` is `from` or `to`). " +
+    "`Validation failed`: `from` or `to` is missing, repeated, or not a real `YYYY-MM-DD` date (`details[].path` is `from` or `to`), " +
+    "or `scope` isn't `all`, `programs` or `boards`. " +
     `\`INVALID_DATE_RANGE\`: \`from\` is after \`to\`. \`DATE_RANGE_TOO_LONG\`: the range is more than ${MAX_RANGE_DAYS} days, both ends included.`,
   content: {
     "application/json": {
@@ -335,6 +398,12 @@ const badRequest = {
           },
         },
         badFormat: { value: { error: "Validation failed", details: [{ path: "from", message: "Invalid ISO date" }] } },
+        badScope: {
+          value: {
+            error: "Validation failed",
+            details: [{ path: "scope", message: 'Invalid option: expected one of "all"|"programs"|"boards"' }],
+          },
+        },
         invalidDateRange: { value: { error: "from must be on or before to", code: "INVALID_DATE_RANGE" } },
         tooLong: {
           value: { error: `The report range can be at most ${MAX_RANGE_DAYS} days`, code: "DATE_RANGE_TOO_LONG" },

@@ -1,9 +1,27 @@
-import { and, arrayOverlaps, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  arrayOverlaps,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { createRepository } from "../../db/repository";
-import { employees, taskDependencies, tasks, type Task } from "../../db/schema";
+import { boards, employees, programs, taskDependencies, tasks, type Task } from "../../db/schema";
 import { db, type DbExecutor } from "../../db";
 import { likeContains } from "../programs/program.repository";
+import { parentWhere, type TaskParent } from "./task.parent";
 import { isUuid, type ListTasksQuery } from "./task.validation";
 
 export interface EmployeeSummary {
@@ -12,11 +30,22 @@ export interface EmployeeSummary {
   emailId: string;
 }
 
-// A task with its people and the computed isDependent flag (what the API returns)
+// The program or board a task belongs to. isActive is false only for a deleted board
+// (a deleted program's tasks aren't returned at all).
+export interface TaskParentSummary {
+  type: "PROGRAM" | "BOARD";
+  id: string;
+  key: string;
+  name: string;
+  isActive: boolean;
+}
+
+// A task with its people, its parent and the computed isDependent flag (what the API returns)
 export interface TaskView {
   task: Task;
   assignee: EmployeeSummary | null;
   reporter: EmployeeSummary;
+  parent: TaskParentSummary;
   isDependent: boolean;
 }
 
@@ -31,6 +60,12 @@ const reporter = alias(employees, "reporter");
 
 // Links only ever point at active tasks (they're deleted with the task), so any link counts
 const isDependentSql = sql<boolean>`exists (select 1 from ${taskDependencies} where ${taskDependencies.taskId} = ${tasks.id})`;
+
+// A task by UUID or key (keys are stored uppercase and unique across FlowDesk)
+const refMatch = (ref: string): SQL => (isUuid(ref) ? eq(tasks.id, ref) : eq(tasks.key, ref.toUpperCase()));
+
+// 00:00Z of a YYYY-MM-DD date, plus whole days
+const utcDayStart = (date: string, plusDays = 0) => new Date(Date.parse(`${date}T00:00:00Z`) + plusDays * 86_400_000);
 
 const sortColumns = {
   number: tasks.number,
@@ -51,22 +86,28 @@ export function createTaskRepository(executor: DbExecutor = db) {
         task: tasks,
         assignee: { id: assignee.id, name: assignee.name, emailId: assignee.emailId },
         reporter: { id: reporter.id, name: reporter.name, emailId: reporter.emailId },
+        program: { id: programs.id, key: programs.key, name: programs.name, isActive: programs.isActive },
+        board: { id: boards.id, key: boards.key, name: boards.name, isActive: boards.isActive },
         isDependent: isDependentSql,
       })
       .from(tasks)
       .leftJoin(assignee, eq(assignee.id, tasks.assigneeId))
-      .innerJoin(reporter, eq(reporter.id, tasks.reporterId));
+      .innerJoin(reporter, eq(reporter.id, tasks.reporterId))
+      .leftJoin(programs, eq(programs.id, tasks.programId))
+      .leftJoin(boards, eq(boards.id, tasks.boardId));
 
   const toView = (row: Awaited<ReturnType<typeof selectViews>>[number]): TaskView => ({
     task: row.task,
     assignee: row.assignee?.id ? row.assignee : null,
     reporter: row.reporter,
+    // Exactly one of them is set (tasks_single_parent_check)
+    parent: row.program?.id ? { type: "PROGRAM", ...row.program } : { type: "BOARD", ...row.board! },
     isDependent: Boolean(row.isDependent),
   });
 
-  const listWhere = (programId: string, f: TaskListFilters): SQL =>
+  const listWhere = (parent: TaskParent, f: TaskListFilters): SQL =>
     and(
-      eq(tasks.programId, programId),
+      parentWhere(tasks, parent),
       eq(tasks.isActive, true),
       f.status ? inArray(tasks.status, f.status) : undefined,
       f.priority ? inArray(tasks.priority, f.priority) : undefined,
@@ -78,6 +119,9 @@ export function createTaskRepository(executor: DbExecutor = db) {
       f.label ? arrayOverlaps(tasks.labels, f.label) : undefined,
       f.dueFrom ? gte(tasks.dueDate, f.dueFrom) : undefined,
       f.dueTo ? lte(tasks.dueDate, f.dueTo) : undefined,
+      // Bounds on the timestamp (not on its date) so tasks_created_at_idx can be used
+      f.createdFrom ? gte(tasks.createdAt, utcDayStart(f.createdFrom)) : undefined,
+      f.createdTo ? lt(tasks.createdAt, utcDayStart(f.createdTo, 1)) : undefined,
       f.isDependent === true ? isDependentSql : undefined,
       f.isDependent === false ? sql`not ${isDependentSql}` : undefined,
       f.q ? or(ilike(tasks.title, likeContains(f.q)), eq(tasks.key, f.q.toUpperCase())) : undefined,
@@ -87,10 +131,27 @@ export function createTaskRepository(executor: DbExecutor = db) {
     ...base,
     withTx: (tx: DbExecutor) => createTaskRepository(tx),
 
-    // Active task in this program by UUID or key (case-insensitive)
-    findByRef(programId: string, ref: string): Promise<Task | undefined> {
-      const match = isUuid(ref) ? eq(tasks.id, ref) : eq(tasks.key, ref.toUpperCase());
-      return base.findOne(and(eq(tasks.programId, programId), match)!);
+    // Active task with this parent by UUID or key (case-insensitive)
+    findByRef(parent: TaskParent, ref: string): Promise<Task | undefined> {
+      return base.findOne(and(parentWhere(tasks, parent), refMatch(ref))!);
+    },
+
+    // Active task by UUID or key, whatever its parent (/tasks/:taskRef). A program task needs an
+    // active program; a board task is reachable even when its board is deleted.
+    async findReachableByRef(ref: string): Promise<Task | undefined> {
+      const [row] = await executor
+        .select({ task: tasks })
+        .from(tasks)
+        .leftJoin(programs, eq(programs.id, tasks.programId))
+        .where(and(refMatch(ref), eq(tasks.isActive, true), or(isNotNull(tasks.boardId), eq(programs.isActive, true))))
+        .limit(1);
+      return row?.task;
+    },
+
+    // Next global task number. Not transactional: a rolled-back create leaves a gap, never a reuse.
+    async nextNumber(): Promise<number> {
+      const result = await executor.execute<{ n: number }>(sql`SELECT nextval('task_number_seq')::int AS n`);
+      return result.rows[0]!.n;
     },
 
     async findViewById(id: string): Promise<TaskView | undefined> {
@@ -98,8 +159,8 @@ export function createTaskRepository(executor: DbExecutor = db) {
       return row ? toView(row) : undefined;
     },
 
-    async listViews(programId: string, filters: TaskListFilters) {
-      const where = listWhere(programId, filters);
+    async listViews(parent: TaskParent, filters: TaskListFilters) {
+      const where = listWhere(parent, filters);
       const dir = filters.order === "asc" ? asc : desc;
       const sortColumn = sortColumns[filters.sort];
       // Tasks without a due date go last in both directions
@@ -118,12 +179,12 @@ export function createTaskRepository(executor: DbExecutor = db) {
       return { items: rows.map(toView), total: total?.value ?? 0, limit: filters.limit, offset: filters.offset };
     },
 
-    // Distinct labels on the program's active tasks with usage counts
-    async labelStats(programId: string): Promise<Array<{ label: string; taskCount: number }>> {
+    // Distinct labels on the program's or board's active tasks with usage counts
+    async labelStats(parent: TaskParent): Promise<Array<{ label: string; taskCount: number }>> {
       const result = await executor.execute<{ label: string; task_count: string }>(sql`
         SELECT label, count(*) AS task_count
         FROM ${tasks}, unnest(${tasks.labels}) AS label
-        WHERE ${tasks.programId} = ${programId} AND ${tasks.isActive} = true
+        WHERE ${parentWhere(tasks, parent)} AND ${tasks.isActive} = true
         GROUP BY label
         ORDER BY task_count DESC, label ASC
       `);

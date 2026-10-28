@@ -4,6 +4,14 @@
 **Branch:** `tasks`
 **Depends on:** [01-db-setup](./01-db-setup.md) (`baseColumns()`, `createRepository()`, error handler, OpenAPI setup), [03-login](./03-login.md) (`requireAuth`, `requireRole`, `req.auth`, `bearerSecurity`, `authNote`, shared 401/403 responses)
 
+> **Changed by [10-boards](./10-boards.md):**
+> - A task's parent is a program **or a board**.
+> - Task numbers come from one global sequence (`task_number_seq`), so they're no longer per program. `programs.task_counter` and `nextTaskNumber` are gone, and creating a task locks the parent row with `lockForUpdate`.
+> - `DEPENDENCY_OTHER_PROGRAM` is now `DEPENDENCY_OTHER_PARENT`.
+> - Every single-task route is also served at `/tasks/{taskRef}`, and the task lists take `createdFrom`/`createdTo`.
+>
+> The rest of this spec still holds.
+
 ## Goal
 
 Give FlowDesk its core work-tracking entities.

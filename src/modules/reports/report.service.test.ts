@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { db, pool, type Transaction } from "../../db";
-import { employees, programs, tasks, teams, type NewProgram, type NewTask } from "../../db/schema";
+import { boards, employees, programs, tasks, teams, type NewBoard, type NewProgram, type NewTask } from "../../db/schema";
 import { getOverviewReport, type OverviewReport } from "./report.service";
+import type { ReportScope } from "./report.validation";
 
 // Runs against DATABASE_URL. Every test works in a transaction that is always rolled back,
-// and first hides the existing programs inside it, so it sees only its own fixtures.
-// See "Testing notes" in .claude/specs/09-overview-report.md
+// and first hides the existing programs, boards and board tasks inside it, so it sees only its
+// own fixtures. See "Testing notes" in .claude/specs/09-overview-report.md and 10-boards.md
 
 const NOW = new Date("2026-10-20T12:00:00Z"); // asOf 2026-10-20, after the period below
 // 91 days (weekly); previous period 2026-04-01 .. 2026-06-30
@@ -19,21 +20,27 @@ class Rollback extends Error {}
 interface Fixture {
   tx: Transaction;
   program(values?: Partial<NewProgram>): Promise<string>;
-  task(programId: string, values?: Partial<NewTask>): Promise<string>;
+  board(values?: Partial<NewBoard>): Promise<string>;
+  // `parentId` is a program or board id from this fixture
+  task(parentId: string, values?: Partial<NewTask>): Promise<string>;
   team(name: string, isActive?: boolean): Promise<string>;
-  report(query?: { from: string; to: string }): Promise<OverviewReport>;
+  report(query?: { from: string; to: string; scope?: ReportScope }): Promise<OverviewReport>;
 }
 
 async function withFixture(fn: (f: Fixture) => Promise<void>): Promise<void> {
   try {
     await db.transaction(async (tx) => {
       await tx.update(programs).set({ isActive: false }).where(eq(programs.isActive, true));
+      // Board tasks count even on a deleted board, so hide the tasks themselves
+      await tx.update(tasks).set({ isActive: false }).where(and(isNotNull(tasks.boardId), eq(tasks.isActive, true)));
+      await tx.update(boards).set({ isActive: false }).where(eq(boards.isActive, true));
       const [reporter] = await tx
         .insert(employees)
         .values({ emailId: `report-test-${randomUUID()}@example.test`, name: "Report Tester" })
         .returning();
       const taskNumbers = new Map<string, number>();
       const programKeys = new Map<string, string>();
+      const boardKeys = new Map<string, string>();
 
       const f: Fixture = {
         tx,
@@ -46,15 +53,22 @@ async function withFixture(fn: (f: Fixture) => Promise<void>): Promise<void> {
           programKeys.set(row!.id, key);
           return row!.id;
         },
-        async task(programId, values = {}) {
-          const number = (taskNumbers.get(programId) ?? 0) + 1;
-          taskNumbers.set(programId, number);
+        async board(values = {}) {
+          const key = `B${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+          const [row] = await tx.insert(boards).values({ key, name: key, ...values }).returning();
+          boardKeys.set(row!.id, key);
+          return row!.id;
+        },
+        async task(parentId, values = {}) {
+          const number = (taskNumbers.get(parentId) ?? 0) + 1;
+          taskNumbers.set(parentId, number);
+          const onBoard = boardKeys.has(parentId);
           const [row] = await tx
             .insert(tasks)
             .values({
-              programId,
+              ...(onBoard ? { boardId: parentId } : { programId: parentId }),
               number,
-              key: `${programKeys.get(programId)}-${number}`,
+              key: `${(onBoard ? boardKeys : programKeys).get(parentId)}-${number}`,
               title: "t",
               reporterId: reporter!.id,
               createdAt: new Date("2026-07-02T00:00:00Z"),
@@ -85,15 +99,17 @@ const done = (completedAt: string, values: Partial<NewTask> = {}): Partial<NewTa
 
 const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
 
-// The totals the spec says always add up
-function assertInvariants(r: OverviewReport): void {
+// The totals the specs say always add up. `onDeletedBoards`: open/overdue tasks on deleted
+// boards, which count in the totals but have no row.
+function assertInvariants(r: OverviewReport, onDeletedBoards = { open: 0, overdue: 0 }): void {
   assert.equal(sum(Object.values(r.programsByStatus)), r.totals.programs);
   assert.equal(r.programs.length, r.totals.programs);
   assert.equal(r.programs.filter((p) => p.atRisk).length, r.totals.programsAtRisk);
   assert.equal(sum(Object.values(r.openTasksByPriority)), r.totals.openTasks);
-  assert.equal(sum(r.programs.map((p) => p.openTasks)), r.totals.openTasks);
-  assert.equal(sum(r.teams.map((t) => t.openTasks)), r.totals.openTasks);
-  assert.equal(sum(r.programs.map((p) => p.overdueTasks)), r.totals.overdueTasks);
+  const rows = [...r.programs, ...r.boards];
+  assert.equal(sum(rows.map((row) => row.openTasks)) + onDeletedBoards.open, r.totals.openTasks);
+  assert.equal(sum(rows.map((row) => row.overdueTasks)) + onDeletedBoards.overdue, r.totals.overdueTasks);
+  assert.equal(sum(r.teams.map((t) => t.openTasks)), sum(r.programs.map((p) => p.openTasks)));
   assert.equal(sum(r.trend.map((b) => b.created)), r.totals.tasksCreated);
   assert.equal(sum(r.trend.map((b) => b.completed)), r.totals.tasksCompleted);
 }
@@ -113,7 +129,7 @@ describe("getOverviewReport", () => {
       assert.deepEqual(Object.keys(r.openTasksByPriority), ["HIGHEST", "HIGH", "MEDIUM", "LOW", "LOWEST"]);
       assert.equal(r.trend.length, 14);
       assert.ok(r.trend.every((b) => b.created === 0 && b.completed === 0));
-      assert.deepEqual([r.teams, r.programs], [[], []]);
+      assert.deepEqual([r.teams, r.programs, r.boards], [[], [], []]);
     }));
 
   test("program scope: finished before from, created after to and deleted programs are excluded", () =>
@@ -282,6 +298,110 @@ describe("getOverviewReport", () => {
       assert.deepEqual(r.programs.map((p) => p.id), [zeta, alpha, beta, gamma]);
       assert.equal(r.totals.programsAtRisk, 1);
       assert.equal(r.totals.overdueTasks, 2);
+      assertInvariants(r);
+    }));
+});
+
+describe("getOverviewReport scope (spec 10)", () => {
+  // A program with two tasks; boards with live, late, deleted and post-period tasks; an empty board;
+  // and a deleted board whose tasks still count
+  async function seed(f: Fixture) {
+    const p = await f.program();
+    await f.task(p); // open
+    await f.task(p, done("2026-07-10T00:00:00Z")); // completed in the period, no due date
+
+    const beta = await f.board({ name: "beta" });
+    await f.task(beta, { dueDate: "2026-09-01" }); // open, overdue
+    await f.task(beta, done("2026-07-10T00:00:00Z", { dueDate: "2026-07-20" })); // on time
+    await f.task(beta, { createdAt: new Date("2026-10-01T00:00:00Z") }); // created after `to`, open now
+    await f.task(beta, { isActive: false }); // deleted task
+    const alpha = await f.board({ name: "Alpha" });
+    await f.task(alpha, { priority: "HIGH" }); // open
+    await f.board({ name: "Empty" }); // no tasks: no row
+
+    const gone = await f.board({ name: "Gone", isActive: false });
+    await f.task(gone, { dueDate: "2026-09-01", priority: "LOW" }); // open, overdue
+    await f.task(gone, done("2026-07-15T00:00:00Z"));
+    return { p, beta, alpha };
+  }
+
+  const onGone = { open: 1, overdue: 1 };
+
+  test("all (the default): program and board tasks together; deleted boards' tasks count without a row", () =>
+    withFixture(async (f) => {
+      const { p, beta, alpha } = await seed(f);
+      const r = await f.report();
+      assert.deepEqual(r.totals, {
+        programs: 1,
+        programsCompleted: 0,
+        programsAtRisk: 0,
+        tasksCreated: 7,
+        tasksCreatedPrevious: 0,
+        tasksCompleted: 3,
+        tasksCompletedPrevious: 0,
+        tasksCompletedWithDueDate: 1,
+        tasksCompletedOnTime: 1,
+        openTasks: 5,
+        overdueTasks: 2,
+      });
+      // The beta task created after `to` is open now but wasn't live in the period
+      assert.deepEqual(r.tasksByStatus, { DISCUSSION: 4, ON_HOLD: 0, IN_PROGRESS: 0, DONE: 3, DEPENDENT: 0 });
+      assert.deepEqual(r.openTasksByPriority, { HIGHEST: 0, HIGH: 1, MEDIUM: 3, LOW: 1, LOWEST: 0 });
+      assert.deepEqual(r.programs.map((row) => row.id), [p]);
+      assert.deepEqual(
+        r.boards.map(({ id, name, ...counts }) => ({ id, ...counts })),
+        [
+          { id: beta, key: r.boards[0]!.key, tasksTotal: 3, tasksDone: 1, tasksCompletedInPeriod: 1, openTasks: 2, overdueTasks: 1 },
+          { id: alpha, key: r.boards[1]!.key, tasksTotal: 1, tasksDone: 0, tasksCompletedInPeriod: 0, openTasks: 1, overdueTasks: 0 },
+        ],
+      );
+      assertInvariants(r, onGone);
+    }));
+
+  test("programs: board tasks left out and boards empty", () =>
+    withFixture(async (f) => {
+      const { p } = await seed(f);
+      const r = await f.report({ ...PERIOD, scope: "programs" });
+      assert.equal(r.totals.tasksCreated, 2);
+      assert.equal(r.totals.tasksCompleted, 1);
+      assert.equal(r.totals.tasksCompletedWithDueDate, 0);
+      assert.equal(r.totals.openTasks, 1);
+      assert.equal(r.totals.overdueTasks, 0);
+      assert.deepEqual(r.tasksByStatus, { DISCUSSION: 1, ON_HOLD: 0, IN_PROGRESS: 0, DONE: 1, DEPENDENT: 0 });
+      assert.deepEqual(r.programs.map((row) => row.id), [p]);
+      assert.deepEqual(r.boards, []);
+      assertInvariants(r);
+    }));
+
+  test("boards: program tasks left out, program-only fields zero/empty", () =>
+    withFixture(async (f) => {
+      const { beta, alpha } = await seed(f);
+      const r = await f.report({ ...PERIOD, scope: "boards" });
+      assert.deepEqual(
+        [r.totals.programs, r.totals.programsCompleted, r.totals.programsAtRisk],
+        [0, 0, 0],
+      );
+      assert.deepEqual(r.programsByStatus, { PLANNED: 0, ACTIVE: 0, ON_HOLD: 0, COMPLETED: 0, CANCELLED: 0 });
+      assert.deepEqual([r.teams, r.programs], [[], []]);
+      assert.equal(r.totals.tasksCreated, 5);
+      assert.equal(r.totals.tasksCompleted, 2);
+      assert.equal(r.totals.tasksCompletedOnTime, 1);
+      assert.equal(r.totals.openTasks, 4);
+      assert.equal(r.totals.overdueTasks, 2);
+      assert.deepEqual(r.boards.map((row) => row.id), [beta, alpha]);
+      assertInvariants(r, onGone);
+    }));
+
+  test("boards are ordered by overdue desc, then name ignoring case", () =>
+    withFixture(async (f) => {
+      const zeta = await f.board({ name: "Zeta" });
+      await f.task(zeta, { dueDate: "2026-09-01" });
+      const beta = await f.board({ name: "Beta" });
+      await f.task(beta);
+      const alpha = await f.board({ name: "alpha" });
+      await f.task(alpha);
+      const r = await f.report();
+      assert.deepEqual(r.boards.map((row) => row.id), [zeta, alpha, beta]);
       assertInvariants(r);
     }));
 });

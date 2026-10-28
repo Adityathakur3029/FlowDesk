@@ -4,6 +4,11 @@
 **Branch:** `comments`
 **Depends on:** [01-db-setup](./01-db-setup.md) (`baseColumns()`, `createRepository()`, OpenAPI setup), [03-login](./03-login.md) (`requireAuth`, `req.auth`, `bearerSecurity`, `authNote`, shared 401/403 responses), [04-program-tasks](./04-program-tasks.md) (`programs`, `tasks`, `getActiveProgram()`, `taskRepository.findByRef`, `taskRefParamSchema`, `EmployeeSummary`)
 
+> **Changed by [10-boards](./10-boards.md):**
+> - Comments can be on **board tasks**. `comments` and `comment_mentions` gain `board_id`, `program_id` becomes nullable, and exactly one of them is set.
+> - `/tasks/{taskRef}/comments` (list, create, get, edit, delete) serves every task's comments with the same rules.
+> - `/programs/{programId}/comments/{commentId}` still serves program and program-task comments, but not board-task ones.
+
 ## Goal
 
 Let people discuss work where it happens.

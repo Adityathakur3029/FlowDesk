@@ -3,6 +3,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { createRepository } from "../../db/repository";
 import { comments, employees, tasks, type Comment } from "../../db/schema";
 import { db, type DbExecutor } from "../../db";
+import { parentWhere, type TaskParent } from "../tasks/task.parent";
 import type { EmployeeSummary } from "../tasks/task.repository";
 import type { ListCommentsQuery } from "./comment.validation";
 
@@ -12,11 +13,19 @@ export interface CommentRow {
   author: EmployeeSummary;
 }
 
-// Program comments have no task; task comments have task_id set
-export interface CommentTarget {
-  programId: string;
-  taskId: string | null;
-}
+// Program comments have no task; task comments have task_id set and copy the task's parent.
+// Boards have no board-level comments, so a board target always has a task.
+export type CommentTarget = TaskParent & { taskId: string | null };
+
+// Where a comment is looked up by id: anywhere in a program or board, or on one task
+export type CommentScope = { programId: string } | { boardId: string } | { taskId: string };
+
+const scopeWhere = (scope: CommentScope): SQL =>
+  "taskId" in scope
+    ? eq(comments.taskId, scope.taskId)
+    : "programId" in scope
+      ? eq(comments.programId, scope.programId)
+      : eq(comments.boardId, scope.boardId);
 
 const reply = alias(comments, "reply");
 
@@ -42,10 +51,10 @@ export function createCommentRepository(executor: DbExecutor = db) {
       .from(comments)
       .innerJoin(employees, eq(employees.id, comments.authorId));
 
-  const threadsWhere = ({ programId, taskId }: CommentTarget): SQL =>
+  const threadsWhere = (target: CommentTarget): SQL =>
     and(
-      eq(comments.programId, programId),
-      taskId ? eq(comments.taskId, taskId) : isNull(comments.taskId),
+      parentWhere(comments, target),
+      target.taskId ? eq(comments.taskId, target.taskId) : isNull(comments.taskId),
       isNull(comments.parentId),
       or(eq(comments.isActive, true), hasActiveReply(executor)),
     )!;
@@ -54,9 +63,9 @@ export function createCommentRepository(executor: DbExecutor = db) {
     ...base,
     withTx: (tx: DbExecutor) => createCommentRepository(tx),
 
-    // Active comment in this program whose task (if any) is active; anything else is "not found".
+    // Active comment in this scope whose task (if any) is active; anything else is "not found".
     // `lock` takes a row lock on the comment (call inside a transaction).
-    async findReachable(programId: string, commentId: string, lock?: "update" | "share"): Promise<Comment | undefined> {
+    async findReachable(scope: CommentScope, commentId: string, lock?: "update" | "share"): Promise<Comment | undefined> {
       let query = executor
         .select({ comment: comments })
         .from(comments)
@@ -64,7 +73,7 @@ export function createCommentRepository(executor: DbExecutor = db) {
         .where(
           and(
             eq(comments.id, commentId),
-            eq(comments.programId, programId),
+            scopeWhere(scope),
             eq(comments.isActive, true),
             or(isNull(comments.taskId), eq(tasks.isActive, true)),
           ),

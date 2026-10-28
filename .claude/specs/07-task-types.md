@@ -4,6 +4,10 @@
 **Branch:** `enhancements`
 **Depends on:** [04-program-tasks](./04-program-tasks.md) (`tasks`, `createTaskSchema`, `updateTaskSchema`, `listTasksQuerySchema`, `toTaskDto`, task docs)
 
+> **Changed by [10-boards](./10-boards.md):**
+> - The `TaskType` description is generalised for board tasks, which have no program dates: PRE = prerequisite work before the main work starts, POST = follow-up work after the main work is done. The enum and sort order are unchanged.
+> - Every type now shares the one global task number sequence, not a per-program `task_counter`.
+
 ## Goal
 
 A program's work isn't all the same kind. Some has to be done before the program starts, most is done while it runs, some comes after it ends, and some is a bug or an issue that turns up along the way. The assigned members do all of it.

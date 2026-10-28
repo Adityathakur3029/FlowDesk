@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, notInArray } from "drizzle-orm";
 import { createRepository } from "../../db/repository";
 import { commentMentions, employees } from "../../db/schema";
 import { db, type DbExecutor } from "../../db";
+import type { TaskParent } from "../tasks/task.parent";
 import type { EmployeeSummary } from "../tasks/task.repository";
 
 // Generic CRUD from createRepository plus mention lookups and syncing.
@@ -37,7 +38,8 @@ export function createCommentMentionRepository(executor: DbExecutor = db) {
 
     // Makes the comment's rows match employeeIds: deletes rows for people no longer mentioned
     // and inserts rows for new ones. Rows for people still mentioned keep their created_at.
-    async replaceForComment(programId: string, commentId: string, employeeIds: string[]): Promise<void> {
+    // `parent` is the comment's program or board, which the rows copy.
+    async replaceForComment(parent: TaskParent, commentId: string, employeeIds: string[]): Promise<void> {
       await executor
         .delete(commentMentions)
         .where(
@@ -49,7 +51,7 @@ export function createCommentMentionRepository(executor: DbExecutor = db) {
       if (employeeIds.length === 0) return;
       await executor
         .insert(commentMentions)
-        .values(employeeIds.map((employeeId) => ({ programId, commentId, employeeId })))
+        .values(employeeIds.map((employeeId) => ({ ...parent, commentId, employeeId })))
         .onConflictDoNothing({ target: [commentMentions.commentId, commentMentions.employeeId] });
     },
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../../db/repository";
 import { programIdParamSchema } from "../programs/program.validation";
+import { taskRefOnlyParamSchema } from "../tasks/task.validation";
 import { MAX_MENTIONS } from "./comment.mentions";
 
 // These schemas validate requests at runtime and also generate the OpenAPI docs
@@ -39,9 +40,15 @@ export const updateCommentSchema = z
   .strictObject({ body: bodySchema })
   .meta({ id: "UpdateCommentRequest", description: "Only `body` can change; any other field (including `parentId`) is rejected." });
 
-export const commentIdParamSchema = programIdParamSchema.extend({
+const commentIdShape = {
   commentId: z.uuid().meta({ description: "Comment id (UUID)", example: "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d" }),
-});
+};
+
+// /programs/:programId/comments/:commentId
+export const commentIdParamSchema = programIdParamSchema.extend(commentIdShape);
+
+// /tasks/:taskRef/comments/:commentId
+export const taskCommentIdParamSchema = taskRefOnlyParamSchema.extend(commentIdShape);
 
 export const listCommentsQuerySchema = z.object({
   order: z.enum(["asc", "desc"]).default("asc").meta({

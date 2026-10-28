@@ -39,7 +39,7 @@ const statusTimesNote =
   "`completedAt` / `cancelledAt` follow `status`: entering `COMPLETED` or `CANCELLED` sets the matching one to now, " +
   "leaving it clears it, and sending the current status again keeps the existing time. They can't be sent.";
 
-// Mirrors toProgramDto in program.dto.ts (task_counter is internal and not returned)
+// Mirrors toProgramDto in program.dto.ts
 export const programSchema = registry.register(
   "Program",
   z

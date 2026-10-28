@@ -1,12 +1,12 @@
 import { sql } from "drizzle-orm";
-import { check, date, index, integer, pgEnum, pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
+import { check, date, index, pgEnum, pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
 import { baseColumns } from "./base";
 import { teams } from "./teams";
 
 export const programStatus = pgEnum("program_status", ["PLANNED", "ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"]);
 
 // The core entity; tasks (and later reports, insights, docs, findings) belong to a program.
-// See .claude/specs/04-program-tasks.md
+// Tasks can also belong to a board instead (.claude/specs/10-boards.md). See .claude/specs/04-program-tasks.md
 export const programs = pgTable(
   "programs",
   {
@@ -23,8 +23,6 @@ export const programs = pgTable(
     // Their coalesce is the program's finish time. See .claude/specs/09-overview-report.md
     completedAt: timestamp("completed_at", { withTimezone: true }),
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
-    // Last task number handed out in this program. Internal, never returned.
-    taskCounter: integer("task_counter").notNull().default(0),
     // Required by the API; NULL only on programs created before teams existed. See .claude/specs/06-teams.md
     ownerTeamId: uuid("owner_team_id").references(() => teams.id),
   },

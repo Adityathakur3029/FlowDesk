@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import * as programService from "./program.service";
 import * as taskService from "../tasks/task.service";
+import { programParent } from "../tasks/task.parent";
 import { toProgramDto } from "./program.dto";
 import {
   createProgramSchema,
@@ -51,6 +52,6 @@ export async function remove(req: Request, res: Response): Promise<void> {
 // GET /programs/:programId/labels
 export async function listLabels(req: Request, res: Response): Promise<void> {
   const { programId } = programIdParamSchema.parse(req.params);
-  const labels = await taskService.listLabels(programId);
+  const labels = await taskService.listLabels(programParent(programId));
   res.json({ data: labels });
 }
