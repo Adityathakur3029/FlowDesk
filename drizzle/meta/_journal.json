@@ -1,0 +1,83 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1792073603604,
+      "tag": "0000_create_employees",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792078108403,
+      "tag": "0001_create_employee_invites",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792231594843,
+      "tag": "0002_add_invite_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792234091183,
+      "tag": "0003_add_employee_google_sub",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792236705582,
+      "tag": "0004_create_programs_and_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792238154183,
+      "tag": "0005_create_comments",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792239409896,
+      "tag": "0006_create_teams",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792240990166,
+      "tag": "0007_add_task_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792420489464,
+      "tag": "0008_add_program_dates",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792484570199,
+      "tag": "0009_add_program_completion_and_report_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793168869253,
+      "tag": "0010_add_boards_and_global_task_numbers",
+      "breakpoints": true
+    }
+  ]
+}

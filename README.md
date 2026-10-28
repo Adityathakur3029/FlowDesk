@@ -45,3 +45,6 @@ Put Nginx (or Caddy) in front as a reverse proxy to `localhost:PORT` and enable 
 | `npm run dev`   | Run with auto-reload          |
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm start`     | Run the compiled server       |
+| `npm run db:generate` | Generate a migration from schema changes |
+| `npm run db:migrate`  | Apply pending migrations |
+| `npm run docs:validate` | Validate the OpenAPI spec and check every route is documented |
