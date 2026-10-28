@@ -310,7 +310,7 @@ On 2026-10-17, against the local DB, with test values for `GOOGLE_CLIENT_ID` and
 
 - **New `toEmployeeDto`** (`src/modules/employees/employee.dto.ts`). It's used by every endpoint that returns an employee, including `POST /invites/accept`, so the new `google_sub` column is never exposed.
 - **502 vs 401.** `google.verifier.ts` fetches Google's certs (cached by the library) before verifying, so an outage returns 502 `GOOGLE_UNAVAILABLE` instead of 401.
-- **Request typing.** `req.auth` is typed in `src/types/express.d.ts`.
+- **Request typing.** `req.auth` is typed in `src/types/express.d.ts`. `src/middleware/auth.ts` pulls it in with `/// <reference path>`, so builds that start from the entry file (Vercel) see it too.
 - **Docs helpers.** Protected operations use `bearerSecurity` and `authNote(...roles)` from `src/docs/registry.ts`, plus the shared `Unauthorized` and `Forbidden` responses.
 - **Bootstrap default.** `BOOTSTRAP_ADMIN_NAME` defaults to `Admin`.
 - **Removed log.** The leftover `console.log` of the request body in `invite.controller.ts` is gone.
