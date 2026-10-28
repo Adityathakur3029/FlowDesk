@@ -1,3 +1,6 @@
+// Pulls in the req.auth typing for builds that start from the entry file (Vercel), which don't
+// pick up src/types/ on their own
+/// <reference path="../types/express.d.ts" />
 import type { NextFunction, Request, Response } from "express";
 import type { EmployeeRole } from "../db/schema";
 import { ForbiddenError, UnauthorizedError } from "../lib/errors";
