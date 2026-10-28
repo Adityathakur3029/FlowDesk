@@ -9,6 +9,7 @@ FlowDesk is the backend service for a mini Jira-style project management tool.
 - **Database:** PostgreSQL
 - **ORM:** Drizzle ORM. All schema definitions, queries, and migrations go through Drizzle. Avoid raw SQL through `pg` unless Drizzle can't express the query.
 - **Config:** environment variables loaded with `dotenv` (`DATABASE_URL`, `PORT`; see `.env.example`)
+- **Hosting:** Vercel, which runs the default export of `src/app.ts` as one function (`src/server.ts` is only for `npm run dev` / `npm start`). Vercel ignores `express.static()`, so serve files from `public/` or a CDN. Deploy steps are in `README.md`.
 
 > Data layer: `src/db/index.ts` exposes `db = drizzle(pool)`. Tables live in `src/db/schema/` (exported from `schema/index.ts`) and spread `...baseColumns()` (`id`, `created_at`, `updated_at`, `is_active`). Services go through repositories built with `createRepository()` from `src/db/repository.ts`. See `.claude/specs/01-db-setup.md`.
 

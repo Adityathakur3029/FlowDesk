@@ -7,7 +7,7 @@ TypeScript + Express backend with PostgreSQL.
 ```bash
 npm install
 cp .env.example .env     # then set DATABASE_URL and PORT
-npm run dev              # http://localhost:3000/health
+npm run dev              # http://localhost:3000/health-check
 ```
 
 ## Make the server live
@@ -16,7 +16,19 @@ npm run dev              # http://localhost:3000/health
 Use a managed provider (Neon, Supabase, Render Postgres, Railway, AWS RDS) and copy its connection string, e.g.
 `postgresql://user:pass@host:5432/dbname`. Some providers require SSL; if so, append `?sslmode=require` to the URL.
 
-### 2. Deploy the server (example: Render / Railway)
+### 2. Deploy on Vercel
+Vercel runs the app as one serverless function from the default export of `src/app.ts` (`src/server.ts` is only used by `npm run dev` / `npm start`).
+1. Import the repo at [vercel.com/new](https://vercel.com/new). The framework is detected as **Express**. Keep the default build settings and `main` as the production branch.
+2. Use the database from step 1, or create one under **Storage → Neon Postgres**, which adds `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED`. Put the database and the function (**Settings → Functions → Region**) in the same region.
+3. Add the other variables from `.env.example` under **Settings → Environment Variables** (not `PORT`). Use new secrets for `AUTH_JWT_SECRET` and `INVITE_TOKEN_SECRET`, `EMAIL_TRANSPORT=smtp`, and the frontend's URL as `APP_BASE_URL`. If one is missing, every request fails and the Runtime Logs show `Invalid environment configuration`.
+4. From your machine, run the migrations and create the first admin against the **unpooled** URL. Don't run migrations in the Vercel build, or preview builds would migrate production too.
+   ```bash
+   DATABASE_URL="<unpooled url>" npm run db:migrate
+   DATABASE_URL="<unpooled url>" BOOTSTRAP_ADMIN_EMAIL=admin@saajha.org BOOTSTRAP_ADMIN_NAME=Admin npm run auth:bootstrap-admin
+   ```
+5. Push to `main` (or run `npx vercel --prod`), then open `https://<your-app>.vercel.app/health-check`.
+
+### 3. Alternative: Render / Railway
 1. Push this repo to GitHub (`.env` is git-ignored, so secrets stay out).
 2. Create a new **Web Service** from the repo.
 3. Set the commands:
@@ -25,9 +37,9 @@ Use a managed provider (Neon, Supabase, Render Postgres, Railway, AWS RDS) and c
 4. Add environment variables in the dashboard:
    - `DATABASE_URL` = your hosted Postgres connection string
    - `PORT` is usually provided by the platform automatically
-5. Deploy, then open `https://<your-app-url>/health`. It should return `{"status":"ok", ...}`.
+5. Deploy, then open `https://<your-app-url>/health-check`. It should return `{"status":"ok", ...}`.
 
-### 3. Alternative: your own VPS
+### 4. Alternative: your own VPS
 ```bash
 git clone <repo> && cd FlowDesk
 npm install && npm run build
