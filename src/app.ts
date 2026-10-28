@@ -52,12 +52,21 @@ app.get("/health-check", async (_req: Request, res: Response) => {
   }
 });
 
-// API documentation
+// API documentation. Swagger UI's assets load from a CDN because Vercel ignores
+// express.static(), which swaggerUi.serve uses. Keep the version in step with swagger-ui-dist.
+const SWAGGER_UI_CDN = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.3";
 const openApiDocument = buildOpenApiDocument();
 app.get("/openapi.json", (_req: Request, res: Response) => {
   res.json(openApiDocument);
 });
-app.use("/docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
+app.use(
+  "/docs",
+  swaggerUi.serve,
+  swaggerUi.setup(openApiDocument, {
+    customCssUrl: `${SWAGGER_UI_CDN}/swagger-ui.css`,
+    customJs: [`${SWAGGER_UI_CDN}/swagger-ui-bundle.js`, `${SWAGGER_UI_CDN}/swagger-ui-standalone-preset.js`],
+  }),
+);
 
 for (const { basePath, router } of routeModules) {
   app.use(basePath, router);
@@ -65,3 +74,6 @@ for (const { basePath, router } of routeModules) {
 
 // Must be registered after all routes
 app.use(errorHandler);
+
+// Vercel runs the default export as its function; src/server.ts is only for `npm run dev` / `npm start`
+export default app;

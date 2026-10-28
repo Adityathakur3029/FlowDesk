@@ -28,7 +28,7 @@ drizzle.config.ts              drizzle-kit config (schema path, out dir, DATABAS
 drizzle/                       generated SQL migrations + meta/ snapshots (commit these)
 src/
   db/
-    index.ts                   pg Pool, `db = drizzle(pool, { schema })`, withTransaction, types
+    index.ts                   pg Pool (5 s idle timeout, `attachDatabasePool` for Vercel), `db = drizzle(pool, { schema })`, withTransaction, types
     migrate.ts                 programmatic migrator (applies ./drizzle)
     repository.ts              createRepository(table) — generic CRUD helpers
     schema/
